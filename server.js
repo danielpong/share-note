@@ -13,6 +13,7 @@ let subscriptions = {};
 let userLastActiveTopic = {};
 
 const TRIAL_DAYS = 7;
+const BOT_ADD_FRIEND_URL = 'https://line.me/R/ti/p/@share_note'; // Replace with your actual bot LINE add-friend URL if different
 
 function getChatStore(chatId) {
   if (!chatData[chatId]) {
@@ -287,12 +288,16 @@ async function handleEvent(event) {
       if (store.topicOrder.length === 0) {
         try {
           await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `📌 No topics available to pin yet.` }] });
-        } catch (e) { console.error(e); }
+        } catch (e) {
+          console.error("Push failed:", e);
+        }
       } else {
         const pinText = createPinPlainText(trialHeader, store);
         try {
           await client.pushMessage({ to: userId, messages: [{ type: 'text', text: pinText }] });
-        } catch (e) { console.error(e); }
+        } catch (e) {
+          console.error("Push failed (likely not friends):", e);
+        }
       }
       return Promise.resolve(null);
     }
@@ -315,17 +320,6 @@ async function handleEvent(event) {
           await client.pushMessage({ to: userId, messages: [{ type: 'text', text: notePlainText }] });
         } catch (e) {
           console.error("Push message failed (likely not friends):", e);
-          try {
-            await client.pushMessage({
-              to: userId,
-              messages: [{
-                type: 'text',
-                text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-              }]
-            });
-          } catch (innerErr) {
-            console.error("Friend prompt failed:", innerErr);
-          }
         }
       }
       return Promise.resolve(null);
@@ -528,59 +522,26 @@ async function handleEvent(event) {
       .find(k => queryPart.toLowerCase() === k || queryPart.toLowerCase().startsWith(k + ' '));
 
     if (!matchedKey) {
-      try {
-        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Topic not found for your reply.` }] });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ Topic not found for your reply.` }]
+      });
     }
 
     const currentNote = store.notes[matchedKey];
     if (currentNote.isLocked) {
-      try {
-        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `🔒 This note is completed and locked.` }] });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `🔒 This note is completed and locked.` }]
+      });
     }
 
     const replyMessageContent = queryPart.substring(matchedKey.length).trim();
     if (!replyMessageContent) {
-      try {
-        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Please provide content for your reply.` }] });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ Please provide content for your reply.` }]
+      });
     }
 
     userLastActiveTopic[userId] = matchedKey;
@@ -588,49 +549,36 @@ async function handleEvent(event) {
 
     const existingReplyIndex = currentNote.entries.findIndex((e, idx) => idx > 0 && e.userId === userId);
     if (existingReplyIndex !== -1) {
-      try {
-        await client.pushMessage({
-          to: userId,
-          messages: [{ type: 'text', text: `⚠️ You already replied to "${currentNote.title}". To update, type:\nedit: [your new message]` }]
-        });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `⚠️ You already replied to "${currentNote.title}". To update, type:\nedit: [your new message]` }]
+      });
     }
 
     const newEntry = { text: replyMessageContent, userId: userId, displayName: displayName, timestamp: timestamp, isEdited: false };
     currentNote.entries.splice(1, 0, newEntry);
     touchTopic(store, matchedKey);
 
+    // Try sending DM confirmation, if failed (not friends), notify in group with add friend link
     try {
       await client.pushMessage({
         to: userId,
         messages: [{ type: 'text', text: `✅ Your reply for "${currentNote.title}" has been recorded successfully!` }]
       });
     } catch (e) {
-      console.error("Push message failed (likely not friends):", e);
-      try {
-        await client.pushMessage({
-          to: userId,
-          messages: [{
-            type: 'text',
-            text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-          }]
-        });
-      } catch (innerErr) { console.error(innerErr); }
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text: `⚠️ @${displayName} Your reply was saved, but you haven't added Share Note as a friend yet!\n\nPlease add us as a friend to receive private notifications and full features:\n${BOT_ADD_FRIEND_URL}`
+        }]
+      });
     }
 
-    return Promise.resolve(null);
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: `✅ @${displayName} replied to "${currentNote.title}" successfully!` }]
+    });
   }
 
   // HANDLE '"edit reply [topic] [text]'
@@ -643,59 +591,26 @@ async function handleEvent(event) {
       .find(k => queryPart.toLowerCase() === k || queryPart.toLowerCase().startsWith(k + ' '));
 
     if (!matchedKey) {
-      try {
-        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Topic not found for your edit.` }] });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ Topic not found for your edit.` }]
+      });
     }
 
     const currentNote = store.notes[matchedKey];
     if (currentNote.isLocked) {
-      try {
-        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `🔒 This note is completed and locked.` }] });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `🔒 This note is completed and locked.` }]
+      });
     }
 
     const newContent = queryPart.substring(matchedKey.length).trim();
     if (!newContent) {
-      try {
-        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Please provide content for your edit.` }] });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ Please provide content for your edit.` }]
+      });
     }
 
     userLastActiveTopic[userId] = matchedKey;
@@ -703,24 +618,10 @@ async function handleEvent(event) {
 
     const existingIndex = currentNote.entries.findIndex((e, idx) => idx > 0 && e.userId === userId);
     if (existingIndex === -1) {
-      try {
-        await client.pushMessage({
-          to: userId,
-          messages: [{ type: 'text', text: `❌ You haven't replied to "${currentNote.title}" yet.` }]
-        });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ You haven't replied to "${currentNote.title}" yet.` }]
+      });
     }
 
     const updatedEntry = { text: newContent, userId: userId, displayName: displayName, timestamp: timestamp, isEdited: true };
@@ -733,19 +634,19 @@ async function handleEvent(event) {
         messages: [{ type: 'text', text: `✅ Your reply for "${currentNote.title}" has been updated successfully!` }]
       });
     } catch (e) {
-      console.error("Push message failed (likely not friends):", e);
-      try {
-        await client.pushMessage({
-          to: userId,
-          messages: [{
-            type: 'text',
-            text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-          }]
-        });
-      } catch (innerErr) { console.error(innerErr); }
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text: `⚠️ @${displayName} Please add Share Note as a friend to enable full private notifications:\n${BOT_ADD_FRIEND_URL}`
+        }]
+      });
     }
 
-    return Promise.resolve(null);
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: `✅ @${displayName} updated their reply for "${currentNote.title}".` }]
+    });
   }
 
   if (lowerText.startsWith('"note ') && lowerText.endsWith(' done')) {
@@ -835,16 +736,14 @@ async function handleEvent(event) {
     try {
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, '✨ ', store.notes[key]) }] });
     } catch (e) {
-      console.error("Push message failed (likely not friends):", e);
-      try {
-        await client.pushMessage({
-          to: userId,
-          messages: [{
-            type: 'text',
-            text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-          }]
-        });
-      } catch (innerErr) { console.error(innerErr); }
+      // If push fails, send group notice with add friend link
+      await client.pushMessage({
+        to: chatId,
+        messages: [{
+          type: 'text',
+          text: `⚠️ @${displayName} Please add Share Note as a friend to receive private notifications:\n${BOT_ADD_FRIEND_URL}`
+        }]
+      }).catch(err => console.error(err));
     }
 
     const recentTopics = store.topicOrder.filter(k => k !== key).slice(0, 3).map(k => ({ title: store.notes[k].title, key: k }));
@@ -891,21 +790,18 @@ async function handleEvent(event) {
     try {
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, '✅ ', note) }] });
     } catch (e) {
-      console.error("Push message failed (likely not friends):", e);
-      try {
-        await client.pushMessage({
-          to: userId,
-          messages: [{
-            type: 'text',
-            text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-          }]
-        });
-      } catch (innerErr) { console.error(innerErr); }
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text: `⚠️ @${displayName} Add Share Note as a friend to receive private DMs:\n${BOT_ADD_FRIEND_URL}`
+        }]
+      });
     }
 
     return client.replyMessage({
       replyToken: event.replyToken,
-      messages: [{ type: 'text', text: `✅ Content added to "${note.title}". Check your private chat with the bot.` }]
+      messages: [{ type: 'text', text: `✅ Content added to "${note.title}".` }]
     });
   }
 
@@ -915,77 +811,33 @@ async function handleEvent(event) {
     const matchedKey = store.topicOrder.sort((a, b) => b.length - a.length).find(k => contentAfterEdit === k || contentAfterEdit.startsWith(k + ' '));
 
     if (!matchedKey) {
-      try {
-        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Topic not found in this group.` }] });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ Topic not found in this group.` }]
+      });
     }
 
     const noteItem = store.notes[matchedKey];
     if (noteItem.isLocked) {
-      try {
-        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `🔒 This project note is completed and locked.` }] });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `🔒 This project note is completed and locked.` }]
+      });
     }
 
     if (noteItem.creatorId && noteItem.creatorId !== userId) {
-      try {
-        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `🔒 Permission denied: Only the creator of "${noteItem.title}" can edit its content.` }] });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `🔒 Permission denied: Only the creator of "${noteItem.title}" can edit its content.` }]
+      });
     }
 
     const rawNewContent = rawText.substring(14).trim().substring(matchedKey.length).trim();
     if (!rawNewContent) {
-      try {
-        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Please specify the updated content text.` }] });
-      } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
-      }
-      return Promise.resolve(null);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ Please specify the updated content text.` }]
+      });
     }
 
     noteItem.editCount = (noteItem.editCount || 0) + 1;
@@ -999,22 +851,10 @@ async function handleEvent(event) {
     touchTopic(store, matchedKey);
     userLastActiveTopic[userId] = matchedKey;
 
-    try {
-      await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `✏️ Note content updated successfully!` }] });
-    } catch (e) {
-      console.error("Push message failed (likely not friends):", e);
-      try {
-        await client.pushMessage({
-          to: userId,
-          messages: [{
-            type: 'text',
-            text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-          }]
-        });
-      } catch (innerErr) { console.error(innerErr); }
-    }
-
-    return Promise.resolve(null);
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: `✏️ Note content updated successfully!` }]
+    });
   }
 
   const isPinStart = lowerText === 'pin' || lowerText.startsWith('pin ');
@@ -1061,39 +901,16 @@ async function handleEvent(event) {
     if (!matchedKey) {
       if (!queryPart) {
         if (store.topicOrder.length === 0) {
-          try {
-            await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `📋 No active notes available in this group.` }] });
-          } catch (e) {
-            console.error("Push message failed (likely not friends):", e);
-            try {
-              await client.pushMessage({
-                to: userId,
-                messages: [{
-                  type: 'text',
-                  text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-                }]
-              });
-            } catch (innerErr) { console.error(innerErr); }
-          }
-          return Promise.resolve(null);
+          return client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{ type: 'text', text: `📋 No active notes available in this group.` }]
+          });
         }
         
-        try {
-          await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createPinPlainText(trialHeader, store) }] });
-        } catch (e) {
-          console.error("Push message failed (likely not friends):", e);
-          try {
-            await client.pushMessage({
-              to: userId,
-              messages: [{
-                type: 'text',
-                text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-              }]
-            });
-          } catch (innerErr) { console.error(innerErr); }
-        }
-        
-        return Promise.resolve(null);
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: createPinPlainText(trialHeader, store) }]
+        });
       }
 
       return client.replyMessage({
@@ -1127,16 +944,13 @@ async function handleEvent(event) {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, statusBadge, currentNote) }] });
       } catch (e) {
-        console.error("Push message failed (likely not friends):", e);
-        try {
-          await client.pushMessage({
-            to: userId,
-            messages: [{
-              type: 'text',
-              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
-            }]
-          });
-        } catch (innerErr) { console.error(innerErr); }
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{
+            type: 'text',
+            text: `⚠️ @${displayName} Please add Share Note as a friend to view notes privately:\n${BOT_ADD_FRIEND_URL}`
+          }]
+        });
       }
       
       return Promise.resolve(null);
