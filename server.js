@@ -292,27 +292,11 @@ async function handleEvent(event) {
   const chatId = event.source.groupId || event.source.roomId || event.source.userId;
   const userId = event.source.userId;
   
-  let displayName = "User";
-  try {
-    if (event.source.groupId) {
-      const profile = await client.getGroupMemberProfile(event.source.groupId, userId);
-      displayName = profile.displayName;
-    } else if (event.source.roomId) {
-      const profile = await client.getRoomMemberProfile(event.source.roomId, userId);
-      displayName = profile.displayName;
-    } else {
-      const profile = await client.getProfile(userId);
-      displayName = profile.displayName;
-    }
-  } catch (err) {
-    console.error("Profile fetch error:", err);
-  }
-
   const rawText = event.message.text.trim();
   const lowerText = rawText.toLowerCase();
 
-  // Handle Guide Instruction Command (English & Thai) via '"guide
-  if (lowerText === '"guide') {
+  // Handle Guide Instruction Command (Supports both "guide and '"guide) immediately at the top
+  if (lowerText === '"guide' || lowerText === '""guide' || lowerText === '"guide\'') {
     const helpText = `📖 LINE Shared Note Bot Guide / คู่มือการใช้งาน\n\n` +
       `✨ 1. Create Topic / สร้างหัวข้อใหม่:\n` +
       `"new topic [name] content [text]\n\n` +
@@ -329,6 +313,22 @@ async function handleEvent(event) {
       replyToken: event.replyToken,
       messages: [{ type: 'text', text: helpText }]
     });
+  }
+
+  let displayName = "User";
+  try {
+    if (event.source.groupId) {
+      const profile = await client.getGroupMemberProfile(event.source.groupId, userId);
+      displayName = profile.displayName;
+    } else if (event.source.roomId) {
+      const profile = await client.getRoomMemberProfile(event.source.roomId, userId);
+      displayName = profile.displayName;
+    } else {
+      const profile = await client.getProfile(userId);
+      displayName = profile.displayName;
+    }
+  } catch (err) {
+    console.error("Profile fetch error:", err);
   }
 
   // Handle Private 1-on-1 DM Chat Interactions (Reply or Edit Reply in DM)
