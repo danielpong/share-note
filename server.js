@@ -295,11 +295,21 @@ async function handleEvent(event) {
   const rawText = event.message.text.trim();
   const lowerText = rawText.toLowerCase();
 
-  // Handle Guide Instruction Command (Supports both "guide and '"guide) immediately at the top
-  if (lowerText === '"guide' || lowerText === '""guide' || lowerText === '"guide\'') {
+  // Universal Guide Trigger
+  if (
+    lowerText === 'guide' || 
+    lowerText === '"guide' || 
+    lowerText === '""guide' || 
+    lowerText === '"guide\'' || 
+    lowerText === 'guide\'' ||
+    lowerText === ''"guide\'' ||
+    lowerText === '"\'guide\'' ||
+    lowerText === '`"guide`' ||
+    lowerText.includes('guide') && (lowerText.includes('"') || lowerText.includes("'"))
+  ) {
     const helpText = `📖 LINE Shared Note Bot Guide / คู่มือการใช้งาน\n\n` +
       `✨ 1. Create Topic / สร้างหัวข้อใหม่:\n` +
-      `"new topic [name] content [text]\n\n` +
+      `"new topic [name] "content [text]\n\n` +
       `📌 2. View Pinned / ดูรายการหัวข้อ:\n` +
       `pin\n\n` +
       `💬 3. Reply to Topic / ตอบกลับหัวข้อ:\n` +
@@ -331,7 +341,7 @@ async function handleEvent(event) {
     console.error("Profile fetch error:", err);
   }
 
-  // Handle Private 1-on-1 DM Chat Interactions (Reply or Edit Reply in DM)
+  // Handle Private 1-on-1 DM Chat Interactions
   if (!isGroup) {
     let targetChatId = null;
     let activeStore = null;
@@ -413,7 +423,7 @@ async function handleEvent(event) {
   const sub = checkAndManageSubscription(chatId);
   const trialHeader = getTrialHeader(sub);
 
-  if (lowerText === '"status') {
+  if (lowerText === '"status' || lowerText === 'status') {
     const expiryStr = new Date(sub.expiresAt).toLocaleDateString();
     return client.replyMessage({
       replyToken: event.replyToken,
@@ -421,7 +431,7 @@ async function handleEvent(event) {
     });
   }
 
-  if (lowerText === '"subscribe') {
+  if (lowerText === '"subscribe' || lowerText === 'subscribe') {
     const hostUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
     const monthlyCheckoutUrl = `${hostUrl}/line-pay/confirm?chatId=${chatId}&plan=monthly`;
     const yearlyCheckoutUrl = `${hostUrl}/line-pay/confirm?chatId=${chatId}&plan=yearly`;
@@ -450,7 +460,7 @@ async function handleEvent(event) {
 
   const store = getChatStore(chatId);
 
-  // HANDLE '"reply [topic] [text]' COMMAND DIRECTLY IN GROUP (Completely quiet in group chat)
+  // HANDLE '"reply [topic] [text]' COMMAND DIRECTLY IN GROUP
   if (lowerText.startsWith('"reply ') || lowerText.startsWith('reply ')) {
     const queryPart = rawText.startsWith('"reply ') ? rawText.substring(7).trim() : rawText.substring(6).trim();
     const allKeys = store.topicOrder.concat(Object.keys(store.notes).filter(k => !store.topicOrder.includes(k)));
@@ -510,7 +520,7 @@ async function handleEvent(event) {
     return Promise.resolve(null);
   }
 
-  // HANDLE '"edit reply [topic] [text]' OR similar direct edit command quietly
+  // HANDLE '"edit reply [topic] [text]'
   if (lowerText.startsWith('"edit reply ') || lowerText.startsWith('edit reply ')) {
     const queryPart = rawText.startsWith('"edit reply ') ? rawText.substring(12).trim() : rawText.substring(11).trim();
     const allKeys = store.topicOrder.concat(Object.keys(store.notes).filter(k => !store.topicOrder.includes(k)));
@@ -709,7 +719,7 @@ async function handleEvent(event) {
     });
   }
 
-  // HANDLE '"edit content xxxx xxxx' (Quietly push confirmation to user DM, keep group clean)
+  // HANDLE '"edit content xxxx xxxx'
   if (lowerText.startsWith('"edit content ')) {
     const contentAfterEdit = rawText.substring(14).trim().toLowerCase();
     const matchedKey = store.topicOrder.sort((a, b) => b.length - a.length).find(k => contentAfterEdit === k || contentAfterEdit.startsWith(k + ' '));
