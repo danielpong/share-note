@@ -564,7 +564,7 @@ async function handleEvent(event) {
         to: userId,
         messages: [{ type: 'text', text: `✅ Your reply for "${currentNote.title}" has been recorded successfully!` }]
       });
-      return Promise.resolve(null); // Clean group chat if successful
+      return Promise.resolve(null);
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
@@ -628,7 +628,76 @@ async function handleEvent(event) {
         to: userId,
         messages: [{ type: 'text', text: `✅ Your reply for "${currentNote.title}" has been updated successfully!` }]
       });
-      return Promise.resolve(null); // Clean group chat if successful
+      return Promise.resolve(null);
+    } catch (e) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
+        }]
+      });
+    }
+  }
+
+  // HANDLE 'edit: [text]' COMMAND FOR NON-FRIENDS IN GROUP
+  if (lowerText.startsWith('edit:')) {
+    let targetChatId = null;
+    let activeStore = null;
+
+    for (const gId of Object.keys(chatData)) {
+      if (userLastActiveTopic[userId] && chatData[gId].notes[userLastActiveTopic[userId]]) {
+        targetChatId = gId;
+        activeStore = chatData[gId];
+        break;
+      }
+    }
+
+    if (!targetChatId || !activeStore) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `📌 Please type "pin" or "view [topic]" inside your group chat first to select an active note topic.` }]
+      });
+    }
+
+    const currentKey = userLastActiveTopic[userId];
+    const note = activeStore.notes[currentKey];
+
+    if (!note || note.isLocked) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ Note not found or is already locked.` }]
+      });
+    }
+
+    const messageContent = rawText.substring(rawText.indexOf(':') + 1).trim();
+    if (!messageContent) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ Please provide content for your edit.` }]
+      });
+    }
+
+    const timestamp = getShortTimestamp();
+    const existingIndex = note.entries.findIndex((e, idx) => idx > 0 && e.userId === userId);
+    
+    if (existingIndex === -1) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ You haven't replied to "${note.title}" yet.` }]
+      });
+    }
+
+    const updatedEntry = { text: messageContent, userId: userId, displayName: displayName, timestamp: timestamp, isEdited: true };
+    note.entries.splice(existingIndex, 1);
+    note.entries.splice(1, 0, updatedEntry);
+
+    try {
+      await client.pushMessage({
+        to: userId,
+        messages: [{ type: 'text', text: `✅ Your reply for "${currentNote.title}" has been updated successfully!` }]
+      });
+      return Promise.resolve(null);
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
@@ -779,7 +848,7 @@ async function handleEvent(event) {
 
     try {
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, '✅ ', note) }] });
-      return Promise.resolve(null); // Clean group chat if successful
+      return Promise.resolve(null);
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
@@ -893,15 +962,23 @@ async function handleEvent(event) {
           });
         }
         
-        return client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{ type: 'text', text: createPinPlainText(trialHeader, store) }]
-        });
+        try {
+          await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createPinPlainText(trialHeader, store) }] });
+          return Promise.resolve(null);
+        } catch (e) {
+          return client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{
+              type: 'text',
+              text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
+            }]
+          });
+        }
       }
 
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `❌ No note found matching query.` }]
+        messages: [{ type: 'text', text: `❌ No note found matching query. Use "view [topic]"` }]
       });
     }
 
