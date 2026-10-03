@@ -332,8 +332,14 @@ async function handleEvent(event) {
   const rawText = event.message.text.trim();
   const lowerText = rawText.toLowerCase();
 
-  // Trigger: "eguide (English Summary Flex Card)
-  if (lowerText === '"eguide' || lowerText === 'eguide' || lowerText === '`"eguide`' || lowerText === '\'"eguide\'') {
+  // Trigger: "enguide (English Summary Flex Card)
+  if (
+    lowerText === '"enguide' || 
+    lowerText === '“enguide' || 
+    lowerText === '”enguide' || 
+    lowerText === 'enguide' || 
+    lowerText === '`"enguide`'
+  ) {
     const enSummary = [
       '• "new topic / "new topic [name] "content [text]: Create a new topic with initial content and record the creator.',
       '• "reply [topic] [text]: Reply to a topic quietly; records entry and notifies via DM.',
@@ -352,7 +358,13 @@ async function handleEvent(event) {
   }
 
   // Trigger: "tguide (Thai Summary Flex Card)
-  if (lowerText === '"tguide' || lowerText === 'tguide' || lowerText === '`"tguide`' || lowerText === '\'"tguide\'') {
+  if (
+    lowerText === '"tguide' || 
+    lowerText === '“tguide' || 
+    lowerText === '”tguide' || 
+    lowerText === 'tguide' || 
+    lowerText === '`"tguide`'
+  ) {
     const thSummary = [
       '• "new topic / "new topic [name] "content [text]: สร้างหัวข้อใหม่พร้อมเนื้อหาเริ่มต้นและบันทึกชื่อผู้สร้าง',
       '• "reply [topic] [text]: ตอบกลับหัวข้อแบบเงียบๆ บันทึกและส่งยืนยันเข้าแชทส่วนตัว (DM)',
