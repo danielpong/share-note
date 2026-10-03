@@ -175,6 +175,43 @@ function createNoteFlexMessage(trialHeader, statusBadge, note, userId, recentTop
   };
 }
 
+function createGuideFlexMessage(title, summaryItems) {
+  const contents = summaryItems.map(item => ({
+    type: 'text',
+    text: item,
+    size: 'sm',
+    wrap: true,
+    margin: 'md'
+  }));
+
+  return {
+    type: 'flex',
+    altText: title,
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: title,
+            weight: 'bold',
+            size: 'md',
+            color: '#1DB446',
+            wrap: true
+          },
+          {
+            type: 'separator',
+            margin: 'md'
+          },
+          ...contents
+        ]
+      }
+    }
+  };
+}
+
 function createNotePlainText(trialHeader, statusBadge, note) {
   const contentBody = formatNoteOutput(note);
   return `${trialHeader}${statusBadge}[Topic: ${note.title}]\n----------------------------------\n${contentBody}\n----------------------------------\n💡 To reply, just type your message directly here!\n✏️ To edit your reply, start with: edit: [your new message]`;
@@ -295,33 +332,41 @@ async function handleEvent(event) {
   const rawText = event.message.text.trim();
   const lowerText = rawText.toLowerCase();
 
-  // Universal Guide Trigger
-  if (
-    lowerText === 'guide' || 
-    lowerText === '"guide' || 
-    lowerText === '""guide' || 
-    lowerText === '"guide\'' || 
-    lowerText === 'guide\'' ||
-    lowerText === ''"guide\'' ||
-    lowerText === '"\'guide\'' ||
-    lowerText === '`"guide`' ||
-    lowerText.includes('guide') && (lowerText.includes('"') || lowerText.includes("'"))
-  ) {
-    const helpText = `📖 LINE Shared Note Bot Guide / คู่มือการใช้งาน\n\n` +
-      `✨ 1. Create Topic / สร้างหัวข้อใหม่:\n` +
-      `"new topic [name] "content [text]\n\n` +
-      `📌 2. View Pinned / ดูรายการหัวข้อ:\n` +
-      `pin\n\n` +
-      `💬 3. Reply to Topic / ตอบกลับหัวข้อ:\n` +
-      `"reply [topic] [text]\n\n` +
-      `✏️ 4. Edit Main Content / แก้ไขเนื้อหาหลัก:\n` +
-      `"edit content [topic] [new text]\n\n` +
-      `🔒 5. Close Topic / ปิดหัวข้อ:\n` +
-      `"note [topic] done`;
-
+  // Trigger: "eguide (English Summary Flex Card)
+  if (lowerText === '"eguide' || lowerText === 'eguide' || lowerText === '`"eguide`' || lowerText === '\'"eguide\'') {
+    const enSummary = [
+      '• "new topic / "new topic [name] "content [text]: Create a new topic with initial content and record the creator.',
+      '• "reply [topic] [text]: Reply to a topic quietly; records entry and notifies via DM.',
+      '• edit: [text] / "edit reply [topic] [text]: Update or edit your existing reply quietly.',
+      '• "content [topic] [text]: Add content/introduction to an existing topic.',
+      '• "edit content [topic] [text]: Edit the main text of a topic (creator only).',
+      '• pin: Display the latest topic flex message card in the group chat.',
+      '• "note [topic] done: Complete and lock a project note, archiving its report.',
+      '• "status: Check current subscription/trial status and validity.',
+      '• "subscribe: Display secure LINE Pay checkout options for plans.'
+    ];
     return client.replyMessage({
       replyToken: event.replyToken,
-      messages: [{ type: 'text', text: helpText }]
+      messages: [createGuideFlexMessage('🇬🇧 English Trigger Guide', enSummary)]
+    });
+  }
+
+  // Trigger: "tguide (Thai Summary Flex Card)
+  if (lowerText === '"tguide' || lowerText === 'tguide' || lowerText === '`"tguide`' || lowerText === '\'"tguide\'') {
+    const thSummary = [
+      '• "new topic / "new topic [name] "content [text]: สร้างหัวข้อใหม่พร้อมเนื้อหาเริ่มต้นและบันทึกชื่อผู้สร้าง',
+      '• "reply [topic] [text]: ตอบกลับหัวข้อแบบเงียบๆ บันทึกและส่งยืนยันเข้าแชทส่วนตัว (DM)',
+      '• edit: [text] / "edit reply [topic] [text]: อัปเดตหรือแก้ไขข้อความที่เคยตอบกลับไปแล้ว',
+      '• "content [topic] [text]: เพิ่มเนื้อหาหรือบทนำให้กับหัวข้อที่มีอยู่',
+      '• "edit content [topic] [text]: แก้ไขเนื้อหาหลักของหัวข้อ (จำกัดเฉพาะผู้สร้าง)',
+      '• pin: แสดงการ์ด Flex ข้อความของหัวข้อล่าสุดในแชทกลุ่ม',
+      '• "note [topic] done: ปิดงานและล็อกโน้ตโปรเจกต์ พร้อมสรุปรายงาน',
+      '• "status: ตรวจสอบสถานะแพ็กเกจและวันหมดอายุของกลุ่ม',
+      '• "subscribe: แสดงปุ่มชำระเงินผ่าน LINE Pay สำหรับแพ็กเกจ'
+    ];
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [createGuideFlexMessage('🇹🇭 คู่มือคำสั่งทริกเกอร์', thSummary)]
     });
   }
 
