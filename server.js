@@ -313,7 +313,20 @@ async function handleEvent(event) {
         
         try {
           await client.pushMessage({ to: userId, messages: [{ type: 'text', text: notePlainText }] });
-        } catch (e) { console.error(e); }
+        } catch (e) {
+          console.error("Push message failed (likely not friends):", e);
+          try {
+            await client.pushMessage({
+              to: userId,
+              messages: [{
+                type: 'text',
+                text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+              }]
+            });
+          } catch (innerErr) {
+            console.error("Friend prompt failed:", innerErr);
+          }
+        }
       }
       return Promise.resolve(null);
     }
@@ -332,7 +345,7 @@ async function handleEvent(event) {
   const rawText = event.message.text.trim();
   const lowerText = rawText.toLowerCase();
 
-  // Trigger: "enguide (English Summary Flex Card) - Placed at the very top
+  // Trigger: "enguide (English Summary Flex Card)
   if (lowerText === '"enguide' || lowerText === 'enguide' || lowerText === '`"enguide`' || lowerText === '“enguide' || lowerText === '”enguide') {
     const enSummary = [
       '• "new topic / "new topic [name] "content [text]: Create a new topic with initial content and record the creator.',
@@ -351,7 +364,7 @@ async function handleEvent(event) {
     });
   }
 
-  // Trigger: "tguide (Thai Summary Flex Card) - Placed at the very top
+  // Trigger: "tguide (Thai Summary Flex Card)
   if (lowerText === '"tguide' || lowerText === 'tguide' || lowerText === '`"tguide`' || lowerText === '“tguide' || lowerText === '”tguide') {
     const thSummary = [
       '• "new topic / "new topic [name] "content [text]: สร้างหัวข้อใหม่พร้อมเนื้อหาเริ่มต้นและบันทึกชื่อผู้สร้าง',
@@ -517,7 +530,18 @@ async function handleEvent(event) {
     if (!matchedKey) {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Topic not found for your reply.` }] });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
@@ -525,7 +549,18 @@ async function handleEvent(event) {
     if (currentNote.isLocked) {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `🔒 This note is completed and locked.` }] });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
@@ -533,7 +568,18 @@ async function handleEvent(event) {
     if (!replyMessageContent) {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Please provide content for your reply.` }] });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
@@ -547,7 +593,18 @@ async function handleEvent(event) {
           to: userId,
           messages: [{ type: 'text', text: `⚠️ You already replied to "${currentNote.title}". To update, type:\nedit: [your new message]` }]
         });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
@@ -560,7 +617,18 @@ async function handleEvent(event) {
         to: userId,
         messages: [{ type: 'text', text: `✅ Your reply for "${currentNote.title}" has been recorded successfully!` }]
       });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error("Push message failed (likely not friends):", e);
+      try {
+        await client.pushMessage({
+          to: userId,
+          messages: [{
+            type: 'text',
+            text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+          }]
+        });
+      } catch (innerErr) { console.error(innerErr); }
+    }
 
     return Promise.resolve(null);
   }
@@ -577,7 +645,18 @@ async function handleEvent(event) {
     if (!matchedKey) {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Topic not found for your edit.` }] });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
@@ -585,7 +664,18 @@ async function handleEvent(event) {
     if (currentNote.isLocked) {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `🔒 This note is completed and locked.` }] });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
@@ -593,7 +683,18 @@ async function handleEvent(event) {
     if (!newContent) {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Please provide content for your edit.` }] });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
@@ -607,7 +708,18 @@ async function handleEvent(event) {
           to: userId,
           messages: [{ type: 'text', text: `❌ You haven't replied to "${currentNote.title}" yet.` }]
         });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
@@ -620,7 +732,18 @@ async function handleEvent(event) {
         to: userId,
         messages: [{ type: 'text', text: `✅ Your reply for "${currentNote.title}" has been updated successfully!` }]
       });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error("Push message failed (likely not friends):", e);
+      try {
+        await client.pushMessage({
+          to: userId,
+          messages: [{
+            type: 'text',
+            text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+          }]
+        });
+      } catch (innerErr) { console.error(innerErr); }
+    }
 
     return Promise.resolve(null);
   }
@@ -711,7 +834,18 @@ async function handleEvent(event) {
 
     try {
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, '✨ ', store.notes[key]) }] });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error("Push message failed (likely not friends):", e);
+      try {
+        await client.pushMessage({
+          to: userId,
+          messages: [{
+            type: 'text',
+            text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+          }]
+        });
+      } catch (innerErr) { console.error(innerErr); }
+    }
 
     const recentTopics = store.topicOrder.filter(k => k !== key).slice(0, 3).map(k => ({ title: store.notes[k].title, key: k }));
     const flexMsg = createNoteFlexMessage(trialHeader, '✨ ', store.notes[key], userId, recentTopics);
@@ -756,7 +890,18 @@ async function handleEvent(event) {
 
     try {
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, '✅ ', note) }] });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error("Push message failed (likely not friends):", e);
+      try {
+        await client.pushMessage({
+          to: userId,
+          messages: [{
+            type: 'text',
+            text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+          }]
+        });
+      } catch (innerErr) { console.error(innerErr); }
+    }
 
     return client.replyMessage({
       replyToken: event.replyToken,
@@ -772,7 +917,18 @@ async function handleEvent(event) {
     if (!matchedKey) {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Topic not found in this group.` }] });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
@@ -780,14 +936,36 @@ async function handleEvent(event) {
     if (noteItem.isLocked) {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `🔒 This project note is completed and locked.` }] });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
     if (noteItem.creatorId && noteItem.creatorId !== userId) {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `🔒 Permission denied: Only the creator of "${noteItem.title}" can edit its content.` }] });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
@@ -795,7 +973,18 @@ async function handleEvent(event) {
     if (!rawNewContent) {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `❌ Please specify the updated content text.` }] });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       return Promise.resolve(null);
     }
 
@@ -812,7 +1001,18 @@ async function handleEvent(event) {
 
     try {
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `✏️ Note content updated successfully!` }] });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error("Push message failed (likely not friends):", e);
+      try {
+        await client.pushMessage({
+          to: userId,
+          messages: [{
+            type: 'text',
+            text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+          }]
+        });
+      } catch (innerErr) { console.error(innerErr); }
+    }
 
     return Promise.resolve(null);
   }
@@ -863,13 +1063,35 @@ async function handleEvent(event) {
         if (store.topicOrder.length === 0) {
           try {
             await client.pushMessage({ to: userId, messages: [{ type: 'text', text: `📋 No active notes available in this group.` }] });
-          } catch (e) { console.error(e); }
+          } catch (e) {
+            console.error("Push message failed (likely not friends):", e);
+            try {
+              await client.pushMessage({
+                to: userId,
+                messages: [{
+                  type: 'text',
+                  text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+                }]
+              });
+            } catch (innerErr) { console.error(innerErr); }
+          }
           return Promise.resolve(null);
         }
         
         try {
           await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createPinPlainText(trialHeader, store) }] });
-        } catch (e) { console.error(e); }
+        } catch (e) {
+          console.error("Push message failed (likely not friends):", e);
+          try {
+            await client.pushMessage({
+              to: userId,
+              messages: [{
+                type: 'text',
+                text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+              }]
+            });
+          } catch (innerErr) { console.error(innerErr); }
+        }
         
         return Promise.resolve(null);
       }
@@ -904,7 +1126,18 @@ async function handleEvent(event) {
     } else {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, statusBadge, currentNote) }] });
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Push message failed (likely not friends):", e);
+        try {
+          await client.pushMessage({
+            to: userId,
+            messages: [{
+              type: 'text',
+              text: `⚠️ To receive private note notifications and replies, please add "Share Note" as a friend first!`
+            }]
+          });
+        } catch (innerErr) { console.error(innerErr); }
+      }
       
       return Promise.resolve(null);
     }
