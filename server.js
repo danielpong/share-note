@@ -13,7 +13,7 @@ let subscriptions = {};
 let userLastActiveTopic = {};
 
 const TRIAL_DAYS = 7;
-const BOT_ADD_FRIEND_URL = 'https://line.me/R/ti/p/@share_note'; // Replace with your actual bot LINE add-friend URL if different
+const BOT_ADD_FRIEND_URL = 'https://line.me/R/ti/p/@share_note';
 
 function getChatStore(chatId) {
   if (!chatData[chatId]) {
@@ -559,26 +559,21 @@ async function handleEvent(event) {
     currentNote.entries.splice(1, 0, newEntry);
     touchTopic(store, matchedKey);
 
-    // Try sending DM confirmation, if failed (not friends), notify in group with add friend link
     try {
       await client.pushMessage({
         to: userId,
         messages: [{ type: 'text', text: `✅ Your reply for "${currentNote.title}" has been recorded successfully!` }]
       });
+      return Promise.resolve(null); // Clean group chat if successful
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
         messages: [{
           type: 'text',
-          text: `⚠️ @${displayName} Your reply was saved, but you haven't added Share Note as a friend yet!\n\nPlease add us as a friend to receive private notifications and full features:\n${BOT_ADD_FRIEND_URL}`
+          text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
         }]
       });
     }
-
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [{ type: 'text', text: `✅ @${displayName} replied to "${currentNote.title}" successfully!` }]
-    });
   }
 
   // HANDLE '"edit reply [topic] [text]'
@@ -633,20 +628,16 @@ async function handleEvent(event) {
         to: userId,
         messages: [{ type: 'text', text: `✅ Your reply for "${currentNote.title}" has been updated successfully!` }]
       });
+      return Promise.resolve(null); // Clean group chat if successful
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
         messages: [{
           type: 'text',
-          text: `⚠️ @${displayName} Please add Share Note as a friend to enable full private notifications:\n${BOT_ADD_FRIEND_URL}`
+          text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
         }]
       });
     }
-
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [{ type: 'text', text: `✅ @${displayName} updated their reply for "${currentNote.title}".` }]
-    });
   }
 
   if (lowerText.startsWith('"note ') && lowerText.endsWith(' done')) {
@@ -736,14 +727,13 @@ async function handleEvent(event) {
     try {
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, '✨ ', store.notes[key]) }] });
     } catch (e) {
-      // If push fails, send group notice with add friend link
-      await client.pushMessage({
-        to: chatId,
+      return client.replyMessage({
+        replyToken: event.replyToken,
         messages: [{
           type: 'text',
-          text: `⚠️ @${displayName} Please add Share Note as a friend to receive private notifications:\n${BOT_ADD_FRIEND_URL}`
+          text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
         }]
-      }).catch(err => console.error(err));
+      });
     }
 
     const recentTopics = store.topicOrder.filter(k => k !== key).slice(0, 3).map(k => ({ title: store.notes[k].title, key: k }));
@@ -789,20 +779,16 @@ async function handleEvent(event) {
 
     try {
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, '✅ ', note) }] });
+      return Promise.resolve(null); // Clean group chat if successful
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
         messages: [{
           type: 'text',
-          text: `⚠️ @${displayName} Add Share Note as a friend to receive private DMs:\n${BOT_ADD_FRIEND_URL}`
+          text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
         }]
       });
     }
-
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [{ type: 'text', text: `✅ Content added to "${note.title}".` }]
-    });
   }
 
   // HANDLE '"edit content xxxx xxxx'
@@ -943,17 +929,16 @@ async function handleEvent(event) {
     } else {
       try {
         await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, statusBadge, currentNote) }] });
+        return Promise.resolve(null);
       } catch (e) {
         return client.replyMessage({
           replyToken: event.replyToken,
           messages: [{
             type: 'text',
-            text: `⚠️ @${displayName} Please add Share Note as a friend to view notes privately:\n${BOT_ADD_FRIEND_URL}`
+            text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
           }]
         });
       }
-      
-      return Promise.resolve(null);
     }
   }
 
