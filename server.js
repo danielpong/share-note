@@ -311,6 +311,26 @@ async function handleEvent(event) {
   const rawText = event.message.text.trim();
   const lowerText = rawText.toLowerCase();
 
+  // Handle Guide Instruction Command (English & Thai) via '"guide
+  if (lowerText === '"guide') {
+    const helpText = `📖 LINE Shared Note Bot Guide / คู่มือการใช้งาน\n\n` +
+      `✨ 1. Create Topic / สร้างหัวข้อใหม่:\n` +
+      `"new topic [name] content [text]\n\n` +
+      `📌 2. View Pinned / ดูรายการหัวข้อ:\n` +
+      `pin\n\n` +
+      `💬 3. Reply to Topic / ตอบกลับหัวข้อ:\n` +
+      `"reply [topic] [text]\n\n` +
+      `✏️ 4. Edit Main Content / แก้ไขเนื้อหาหลัก:\n` +
+      `"edit content [topic] [new text]\n\n` +
+      `🔒 5. Close Topic / ปิดหัวข้อ:\n` +
+      `"note [topic] done`;
+
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: helpText }]
+    });
+  }
+
   // Handle Private 1-on-1 DM Chat Interactions (Reply or Edit Reply in DM)
   if (!isGroup) {
     let targetChatId = null;
