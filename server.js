@@ -375,131 +375,6 @@ async function handleEvent(event) {
   // ABSOLUTE ISOLATED PRIVATE DM HANDLER
   // ==========================================
   if (!isGroup) {
-    // 1. Handle '"my group' command with global server-wide fallback
-    if (lowerText === '"my group' || lowerText === 'my group' || lowerText === '`"my group`') {
-      let foundGroups = [];
-      
-      if (userGroups[userId] && userGroups[userId].size > 0) {
-        for (let [gId, info] of userGroups[userId].entries()) {
-          foundGroups.push({ name: info.groupName || gId, isCreator: info.isCreator });
-        }
-      } else {
-        for (let gId of Object.keys(chatData)) {
-          const store = chatData[gId];
-          const isCreator = store.creatorId === userId || Object.values(store.notes).some(n => n.creatorId === userId);
-          foundGroups.push({ name: store.groupName || gId, isCreator: isCreator });
-        }
-      }
-
-      if (foundGroups.length === 0) {
-        return client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{ type: 'text', text: `📌 No groups found on the server yet. Please interact or create a note inside your group chat first!` }]
-        });
-      }
-
-      let msg = `📋 [ATTENDED GROUPS LIST]\nHere are the groups available:\n`;
-      foundGroups.forEach((g, idx) => {
-        const roleTag = g.isCreator ? `👑 Creator` : `👤 Member`;
-        msg += `\n${idx + 1}. ${g.name} (${roleTag})`;
-      });
-      msg += `\n\n💡 Tip: Copy a group name above and use:\n"new [group name] "topic [name] "content [text]`;
-
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: msg }]
-      });
-    }
-
-    // 2. Handle '"new [group] "topic [name] "content [text]' command in private chat
-    if (lowerText.startsWith('"new ')) {
-      const subText = rawText.substring(5).trim();
-      const topicIndex = subText.toLowerCase().indexOf('"topic ');
-      
-      if (topicIndex !== -1) {
-        const groupQuery = cleanGroupName(subText.substring(0, topicIndex).trim());
-        const remainder = subText.substring(topicIndex + 7).trim();
-        const contentIndex = remainder.toLowerCase().indexOf('"content ');
-
-        let targetChatId = null;
-        
-        const attendedMap = userGroups[userId];
-        if (attendedMap) {
-          for (const [gId, info] of attendedMap.entries()) {
-            const cleanStoredName = cleanGroupName(info.groupName);
-            if (cleanStoredName.includes(groupQuery) || groupQuery.includes(cleanStoredName)) {
-              targetChatId = gId;
-              break;
-            }
-          }
-        }
-
-        if (!targetChatId) {
-          for (const gId of Object.keys(chatData)) {
-            const store = chatData[gId];
-            const cleanStoreName = cleanGroupName(store.groupName || gId);
-            if (cleanStoreName.includes(groupQuery) || groupQuery.includes(cleanStoreName)) {
-              targetChatId = gId;
-              break;
-            }
-          }
-        }
-
-        if (!targetChatId) {
-          return client.replyMessage({
-            replyToken: event.replyToken,
-            messages: [{ type: 'text', text: `❌ Group not found. Type "my group" to see your attended group names.` }]
-          });
-        }
-
-        let topicName = "";
-        let initialContent = "";
-
-        if (contentIndex !== -1) {
-          topicName = remainder.substring(0, contentIndex).trim();
-          initialContent = remainder.substring(contentIndex + 9).trim();
-        } else {
-          topicName = remainder;
-        }
-
-        if (!topicName) {
-          return client.replyMessage({
-            replyToken: event.replyToken,
-            messages: [{ type: 'text', text: `❌ Please provide a topic name after "topic`. }]
-          });
-        }
-
-        const activeStore = chatData[targetChatId];
-        const key = topicName.toLowerCase();
-        if (activeStore.notes[key]) {
-          return client.replyMessage({
-            replyToken: event.replyToken,
-            messages: [{ type: 'text', text: `⚠️ Warning: The topic "${topicName}" already exists in that group!` }]
-          });
-        }
-
-        const entries = initialContent ? [{ text: initialContent, userId: userId, displayName: displayName }] : [];
-        activeStore.notes[key] = { 
-          title: topicName, 
-          entries: entries, 
-          creatorId: userId, 
-          creatorName: displayName, 
-          editCount: 0, 
-          isLocked: false, 
-          createdAt: getShortTimestamp() 
-        };
-        activeStore.latestTopic = key;
-        touchTopic(activeStore, key);
-        userLastActiveTopic[userId] = key;
-
-        return client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{ type: 'text', text: `✨ New topic "${topicName}" has been successfully created in group!` }]
-        });
-      }
-    }
-
-    // 3. Handle active note replies/edits in private DM
     let targetChatId = null;
     for (const gId of Object.keys(chatData)) {
       if (userLastActiveTopic[userId] && chatData[gId].notes[userLastActiveTopic[userId]]) {
@@ -511,7 +386,7 @@ async function handleEvent(event) {
     if (!targetChatId || !chatData[targetChatId]) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `📌 Please type "my group" to check your groups, or use format:\n"new [group name] "topic [name] "content [text]` }]
+        messages: [{ type: 'text', text: `📌 Please type "pin" or "view [topic]" inside your group chat first to select an active note topic.` }]
       });
     }
 
@@ -522,7 +397,7 @@ async function handleEvent(event) {
     if (!note) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `❌ No active note selected. Type "my group" or use "new [group name] "topic [name] "content [text]"` }]
+        messages: [{ type: 'text', text: `❌ No active note selected.` }]
       });
     }
 
@@ -673,8 +548,6 @@ async function handleEvent(event) {
   // Trigger: "enguide
   if (lowerText === '"enguide') {
     const enSummary = [
-      '• "my group: View list of attended groups and your role (Creator / Member).',
-      '• "new [group] "topic [name] "content [text]: Create a new topic in a specific group from private DM.',
       '• "new topic / "new topic [name] "content [text]: Create a new topic inside the current group chat.',
       '• "reply [topic] [text]: Reply to a topic quietly; records entry and notifies via DM.',
       '• edit: [text] / "edit reply [topic] [text]: Update or edit your existing reply quietly.',
@@ -694,8 +567,6 @@ async function handleEvent(event) {
   // Trigger: "tguide
   if (lowerText === '"tguide') {
     const thSummary = [
-      '• "my group: แสดงรายการกลุ่มที่คุณเคยเข้าร่วมและสถานะของคุณ (ผู้สร้างกลุ่ม / สมาชิก)',
-      '• "new [group] "topic [name] "content [text]: สร้างหัวข้อใหม่ในกลุ่มที่ระบุผ่านแชทส่วนตัว',
       '• "new topic / "new topic [name] "content [text]: สร้างหัวข้อใหม่พร้อมเนื้อหาเริ่มต้นในห้องแชทกลุ่มนี้',
       '• "reply [topic] [text]: ตอบกลับหัวข้อแบบเงียบๆ บันทึกและส่งยืนยันเข้าแชทส่วนตัว (DM)',
       '• edit: [text] / "edit reply [topic] [text]: อัปเดตหรือแก้ไขข้อความที่เคยตอบกลับไปแล้ว',
@@ -1165,16 +1036,17 @@ async function handleEvent(event) {
     try {
       const notePlainText = createNotePlainText(trialHeader, statusBadge, currentNote);
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: notePlainText }] });
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `✅ Note "${currentNote.title}" has been sent to your private chat!` }]
-      });
     } catch (e) {
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: nonFriendNotice }]
-      });
+      console.error("Private push failed:", e);
     }
+
+    const recentTopics = store.topicOrder.filter(k => k !== matchedKey).slice(0, 3).map(k => ({ title: store.notes[k].title, key: k }));
+    const flexMsg = createNoteFlexMessage(trialHeader, statusBadge, currentNote, userId, recentTopics);
+
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [flexMsg]
+    });
   }
 
   return Promise.resolve(null);
