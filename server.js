@@ -18,13 +18,9 @@ const BOT_ADD_FRIEND_URL = 'https://line.me/R/ti/p/@share_note';
 
 function getChatStore(chatId) {
   if (!chatData[chatId]) {
-    chatData[chatId] = { notes: {}, latestTopic: "", topicOrder: [], groupName: chatId, creatorId: null };
+    chatData[chatId] = { notes: {}, latestTopic: "", topicOrder: [], groupName: `Group (${chatId.substring(0, 6)})`, creatorId: null };
   }
   return chatData[chatId];
-}
-
-function cleanGroupName(name) {
-  return name.replace(/[^\w\sа-яก-ฮ]/gi, '').trim().toLowerCase();
 }
 
 function trackUserGroup(userId, chatId, groupName, isCreator = false) {
@@ -33,7 +29,9 @@ function trackUserGroup(userId, chatId, groupName, isCreator = false) {
   }
   const existing = userGroups[userId].get(chatId) || { groupName: groupName, isCreator: false };
   if (isCreator) existing.isCreator = true;
-  if (groupName && groupName !== chatId && groupName !== "Group Chat") existing.groupName = groupName;
+  if (groupName && groupName !== chatId && groupName !== "Group Chat") {
+    existing.groupName = groupName;
+  }
   userGroups[userId].set(chatId, existing);
 }
 
@@ -356,21 +354,13 @@ async function handleEvent(event) {
   const lowerText = rawText.toLowerCase();
 
   let displayName = "User";
-  let groupName = "";
   try {
     if (event.source.groupId) {
       const profile = await client.getGroupMemberProfile(event.source.groupId, userId);
       displayName = profile.displayName;
-      try {
-        const summary = await client.getGroupSummary(event.source.groupId);
-        groupName = summary.groupName;
-      } catch (err) {
-        groupName = "Group " + event.source.groupId.substring(0, 6);
-      }
     } else if (event.source.roomId) {
       const profile = await client.getRoomMemberProfile(event.source.roomId, userId);
       displayName = profile.displayName;
-      groupName = "Room Chat";
     } else {
       const profile = await client.getProfile(userId);
       displayName = profile.displayName;
@@ -388,15 +378,13 @@ async function handleEvent(event) {
       
       if (userGroups[userId] && userGroups[userId].size > 0) {
         for (let [gId, info] of userGroups[userId].entries()) {
-          const name = (info.groupName && info.groupName !== gId && info.groupName !== "Group Chat") ? info.groupName : `Group (${gId.substring(0, 6)})`;
-          foundGroups.push({ name: name, isCreator: info.isCreator });
+          foundGroups.push({ name: info.groupName || `Group (${gId.substring(0, 6)})`, isCreator: info.isCreator });
         }
       } else {
         for (let gId of Object.keys(chatData)) {
           const store = chatData[gId];
           const isCreator = store.creatorId === userId || Object.values(store.notes).some(n => n.creatorId === userId);
-          const name = (store.groupName && store.groupName !== gId && store.groupName !== "Group Chat") ? store.groupName : `Group (${gId.substring(0, 6)})`;
-          foundGroups.push({ name: name, isCreator: isCreator });
+          foundGroups.push({ name: store.groupName || `Group (${gId.substring(0, 6)})`, isCreator: isCreator });
         }
       }
 
@@ -412,7 +400,7 @@ async function handleEvent(event) {
         const roleTag = g.isCreator ? `👑 Creator` : `👤 Member`;
         msg += `\n${idx + 1}. ${g.name} (${roleTag})`;
       });
-      msg += `\n\n💡 Tip: Copy a group name above and use:\n"new [group name] "topic [name] "content [text]`;
+      msg += `\n\n💡 Tip: To rename a group, type inside your group chat:\n"name [your group name]`;
 
       return client.replyMessage({
         replyToken: event.replyToken,
@@ -729,10 +717,22 @@ async function handleEvent(event) {
   }
 
   const store = getChatStore(chatId);
-  if (groupName && groupName !== "Group Chat") {
-    store.groupName = groupName;
-  } else if (!store.groupName || store.groupName === chatId) {
-    store.groupName = `Group (${chatId.substring(0, 6)})`;
+
+  // Allow users to name their group using `"name [custom name]`
+  if (lowerText.startsWith('"name ')) {
+    const customName = rawText.substring(6).trim();
+    if (customName) {
+      store.groupName = customName;
+      trackUserGroup(userId, chatId, customName, store.creatorId === userId);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `✅ Group name updated successfully to: "${customName}"` }]
+      });
+    }
+  }
+
+  if (!store.groupName || store.groupName === chatId || store.groupName.startsWith('Group (')) {
+    // Keep existing or default
   }
   
   if (!store.creatorId) {
@@ -925,7 +925,7 @@ async function handleEvent(event) {
       });
     }
 
-    store.groupName = store.groupName || chatId;
+    store.groupName = store.groupName || `Group (${chatId.substring(0, 6)})`;
 
     const key = topicName.toLowerCase();
     if (store.notes[key]) {
