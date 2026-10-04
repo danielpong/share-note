@@ -241,7 +241,7 @@ function createPinPlainText(trialHeader, store) {
     pinText += `\n${idx + 1}. 📌 ${note.title} (${replyCount} replies)`;
   });
   
-  pinText += `\n\n☝️ Type: "view [topic name] to open it here.`;
+  pinText += `\n\n☝️ Type: "view [topic name]" to open it here.`;
   return pinText;
 }
 
@@ -350,7 +350,6 @@ async function handleEvent(event) {
   const chatId = event.source.groupId || event.source.roomId || event.source.userId;
   const userId = event.source.userId;
   
-  // Normalize all mobile smart quotes, curly variants, and angle quotes to a standard straight quote
   const rawText = event.message.text.trim().replace(/^[“”„‟"«»]+/, '"');
   const lowerText = rawText.toLowerCase();
 
@@ -1078,11 +1077,35 @@ async function handleEvent(event) {
     const statusBadge = latestNote.isLocked ? `🏁 [COMPLETED & LOCKED]\n` : `📋 `;
     const recentTopics = store.topicOrder.filter(k => k !== latestKey).slice(0, 3).map(k => ({ title: store.notes[k].title, key: k }));
 
-    const flexMsg = createNoteFlexMessage(trialHeader, statusBadge, latestNote, userId, recentTopics);
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [flexMsg]
-    });
+    // Rule: Group Creator typing '"pin' gets both private summary & group flex card
+    if (isCreator) {
+      try {
+        const pinText = createPinPlainText(trialHeader, store);
+        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: pinText }] });
+      } catch (e) {
+        console.error("Private push failed:", e);
+      }
+      const flexMsg = createNoteFlexMessage(trialHeader, statusBadge, latestNote, userId, recentTopics);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [flexMsg]
+      });
+    }
+
+    // Rule: Regular users typing '"pin' get a quiet private text only, nothing in group
+    try {
+      const pinText = createPinPlainText(trialHeader, store);
+      await client.pushMessage({ to: userId, messages: [{ type: 'text', text: pinText }] });
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `✅ Pinned topics list has been sent to your private chat!` }]
+      });
+    } catch (e) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: nonFriendNotice }]
+      });
+    }
   }
 
   if (lowerText.startsWith('"view ') || lowerText === '"view') {
@@ -1144,12 +1167,22 @@ async function handleEvent(event) {
       console.error("Private push failed:", e);
     }
 
-    const recentTopics = store.topicOrder.filter(k => k !== matchedKey).slice(0, 3).map(k => ({ title: store.notes[k].title, key: k }));
-    const flexMsg = createNoteFlexMessage(trialHeader, statusBadge, currentNote, userId, recentTopics);
+    const isNoteCreator = currentNote.creatorId === userId;
 
+    // Rule: Note creator typing '"view [topic]' gets private text + group flex card
+    if (isNoteCreator) {
+      const recentTopics = store.topicOrder.filter(k => k !== matchedKey).slice(0, 3).map(k => ({ title: store.notes[k].title, key: k }));
+      const flexMsg = createNoteFlexMessage(trialHeader, statusBadge, currentNote, userId, recentTopics);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [flexMsg]
+      });
+    }
+
+    // Rule: Regular user typing '"view [topic]' gets private text only, nothing in group chat
     return client.replyMessage({
       replyToken: event.replyToken,
-      messages: [flexMsg]
+      messages: [{ type: 'text', text: `✅ The note details have been sent to your private chat!` }]
     });
   }
 
