@@ -423,24 +423,57 @@ async function handleEvent(event) {
       });
     }
 
-    const isEditAction = lowerText.startsWith('edit:') || lowerText.startsWith('edit reply');
-    const messageContent = isEditAction ? rawText.substring(rawText.indexOf(':') + 1).trim() || rawText.substring(10).trim() : rawText;
+    // 1. Handle '"reply [text]' in DM
+    if (lowerText.startsWith('"reply ') || lowerText.startsWith('reply ')) {
+      const replyMessageContent = rawText.startsWith('"reply ') ? rawText.substring(7).trim() : rawText.substring(6).trim();
+      if (!replyMessageContent) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `❌ Please provide content for your reply.` }]
+        });
+      }
 
-    if (!messageContent) {
+      const timestamp = getShortTimestamp();
+      const existingReplyIndex = note.entries.findIndex((e, idx) => idx > 0 && e.userId === userId);
+      if (existingReplyIndex !== -1) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `⚠️ You already replied to "${note.title}". To update, type:\n"edit reply [your new message]` }]
+        });
+      }
+
+      const newEntry = { text: replyMessageContent, userId: userId, displayName: displayName, timestamp: timestamp, isEdited: false };
+      note.entries.splice(1, 0, newEntry);
+      touchTopic(activeStore, currentKey);
+
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `❌ Please provide content for your reply or edit.` }]
+        messages: [{ type: 'text', text: `✅ Your reply for "${note.title}" has been recorded successfully!` }]
       });
     }
 
-    const timestamp = getShortTimestamp();
+    // 2. Handle '"edit reply [text]' or 'edit: [text]' in DM
+    const isEditReplyCmd = lowerText.startsWith('"edit reply ') || lowerText.startsWith('edit reply ');
+    const isEditColon = lowerText.startsWith('edit:');
+    
+    if (isEditReplyCmd || isEditColon) {
+      const messageContent = isEditReplyCmd 
+        ? (rawText.startsWith('"edit reply ') ? rawText.substring(12).trim() : rawText.substring(11).trim())
+        : rawText.substring(rawText.indexOf(':') + 1).trim();
 
-    if (isEditAction) {
+      if (!messageContent) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `❌ Please provide content for your edit.` }]
+        });
+      }
+
+      const timestamp = getShortTimestamp();
       const existingIndex = note.entries.findIndex((e, idx) => idx > 0 && e.userId === userId);
       if (existingIndex === -1) {
         return client.replyMessage({
           replyToken: event.replyToken,
-          messages: [{ type: 'text', text: `❌ You haven't replied to "${note.title}" yet. Send a normal message first to reply.` }]
+          messages: [{ type: 'text', text: `❌ You haven't replied to "${note.title}" yet.` }]
         });
       }
 
@@ -452,24 +485,75 @@ async function handleEvent(event) {
         replyToken: event.replyToken,
         messages: [{ type: 'text', text: `✅ Your reply for "${note.title}" has been updated successfully!` }]
       });
-    } else {
-      const existingReplyIndex = note.entries.findIndex((e, idx) => idx > 0 && e.userId === userId);
-      if (existingReplyIndex !== -1) {
+    }
+
+    // 3. Handle '"edit content [text]' in DM
+    if (lowerText.startsWith('"edit content ') || lowerText.startsWith('edit content ')) {
+      const newContent = rawText.startsWith('"edit content ') ? rawText.substring(14).trim() : rawText.substring(13).trim();
+      
+      if (note.creatorId && note.creatorId !== userId) {
         return client.replyMessage({
           replyToken: event.replyToken,
-          messages: [{ type: 'text', text: `⚠️ You already replied to "${note.title}". To update, type:\nedit: [your new message]` }]
+          messages: [{ type: 'text', text: `🔒 Permission denied: Only the creator of "${note.title}" can edit its content.` }]
         });
       }
 
-      const newEntry = { text: messageContent, userId: userId, displayName: displayName, timestamp: timestamp, isEdited: false };
-      note.entries.splice(1, 0, newEntry);
+      if (!newContent) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `❌ Please specify the updated content text.` }]
+        });
+      }
+
+      note.editCount = (note.editCount || 0) + 1;
+      if (note.entries.length > 0) {
+        note.entries[0].text = newContent;
+        note.entries[0].displayName = displayName;
+      } else {
+        note.entries.push({ text: newContent, userId: userId, displayName: displayName });
+      }
+
       touchTopic(activeStore, currentKey);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `✏️ Note content for "${note.title}" updated successfully!` }]
+      });
+    }
+
+    // 4. Handle '"note [topic] done' or '"note done' in DM
+    if (lowerText.startsWith('"note ') && lowerText.endsWith(' done')) {
+      note.isLocked = true;
+      activeStore.topicOrder = activeStore.topicOrder.filter(k => k !== currentKey);
+      if (activeStore.latestTopic === currentKey) {
+        activeStore.latestTopic = activeStore.topicOrder[0] || "";
+      }
 
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `✅ Your reply for "${note.title}" has been recorded successfully!` }]
+        messages: [{ type: 'text', text: `🏁 [PROJECT COMPLETED & ARCHIVED]\n📌 Topic: ${note.title}\n\n🔒 This share note is now locked and finalized.` }]
       });
     }
+
+    // Default fallback for plain text in DM (treat as normal reply if not command)
+    const messageContent = rawText;
+    const timestamp = getShortTimestamp();
+    const existingReplyIndex = note.entries.findIndex((e, idx) => idx > 0 && e.userId === userId);
+    
+    if (existingReplyIndex !== -1) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `⚠️ You already replied to "${note.title}". To update, type:\n"edit reply [your new message]` }]
+      });
+    }
+
+    const newEntry = { text: messageContent, userId: userId, displayName: displayName, timestamp: timestamp, isEdited: false };
+    note.entries.splice(1, 0, newEntry);
+    touchTopic(activeStore, currentKey);
+
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: `✅ Your reply for "${note.title}" has been recorded successfully!` }]
+    });
   }
 
   const sub = checkAndManageSubscription(chatId);
@@ -511,6 +595,7 @@ async function handleEvent(event) {
   }
 
   const store = getChatStore(chatId);
+  const nonFriendNotice = `⚠️ @${displayName} Please add friend with Share Note to receive private messages (note view, summary, reply, and edit confirmation):\n${BOT_ADD_FRIEND_URL}`;
 
   // HANDLE '"reply [topic] [text]' COMMAND DIRECTLY IN GROUP
   if (lowerText.startsWith('"reply ') || lowerText.startsWith('reply ')) {
@@ -568,15 +653,12 @@ async function handleEvent(event) {
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
-        }]
+        messages: [{ type: 'text', text: nonFriendNotice }]
       });
     }
   }
 
-  // HANDLE '"edit reply [topic] [text]'
+  // HANDLE '"edit reply [topic] [text]' COMMAND DIRECTLY IN GROUP
   if (lowerText.startsWith('"edit reply ') || lowerText.startsWith('edit reply ')) {
     const queryPart = rawText.startsWith('"edit reply ') ? rawText.substring(12).trim() : rawText.substring(11).trim();
     const allKeys = store.topicOrder.concat(Object.keys(store.notes).filter(k => !store.topicOrder.includes(k)));
@@ -632,10 +714,7 @@ async function handleEvent(event) {
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
-        }]
+        messages: [{ type: 'text', text: nonFriendNotice }]
       });
     }
   }
@@ -701,10 +780,7 @@ async function handleEvent(event) {
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
-        }]
+        messages: [{ type: 'text', text: nonFriendNotice }]
       });
     }
   }
@@ -798,10 +874,7 @@ async function handleEvent(event) {
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
-        }]
+        messages: [{ type: 'text', text: nonFriendNotice }]
       });
     }
 
@@ -852,10 +925,7 @@ async function handleEvent(event) {
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
-        }]
+        messages: [{ type: 'text', text: nonFriendNotice }]
       });
     }
   }
@@ -962,16 +1032,18 @@ async function handleEvent(event) {
           });
         }
         
+        // Plain text list of topics sent privately to DM
         try {
-          await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createPinPlainText(trialHeader, store) }] });
-          return Promise.resolve(null);
+          const pinText = createPinPlainText(trialHeader, store);
+          await client.pushMessage({ to: userId, messages: [{ type: 'text', text: pinText }] });
+          return client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{ type: 'text', text: `✅ Pinned topics list has been sent to your private chat!` }]
+          });
         } catch (e) {
           return client.replyMessage({
             replyToken: event.replyToken,
-            messages: [{
-              type: 'text',
-              text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
-            }]
+            messages: [{ type: 'text', text: nonFriendNotice }]
           });
         }
       }
@@ -993,29 +1065,20 @@ async function handleEvent(event) {
     touchTopic(store, matchedKey);
     userLastActiveTopic[userId] = matchedKey;
 
-    const isCreator = currentNote.creatorId === userId;
     const statusBadge = currentNote.isLocked ? `🏁 [COMPLETED & LOCKED]\n` : `📋 `;
 
-    if (isCreator) {
-      const recentTopics = store.topicOrder.filter(k => k !== matchedKey).slice(0, 3).map(k => ({ title: store.notes[k].title, key: k }));
-      const flexMsg = createNoteFlexMessage(trialHeader, statusBadge, currentNote, userId, recentTopics);
+    try {
+      const notePlainText = createNotePlainText(trialHeader, statusBadge, currentNote);
+      await client.pushMessage({ to: userId, messages: [{ type: 'text', text: notePlainText }] });
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [flexMsg]
+        messages: [{ type: 'text', text: `✅ Note "${currentNote.title}" has been sent to your private chat!` }]
       });
-    } else {
-      try {
-        await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, statusBadge, currentNote) }] });
-        return Promise.resolve(null);
-      } catch (e) {
-        return client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{
-            type: 'text',
-            text: `⚠️ @${displayName} Please add friend with Share Note to receive a private notification: ${BOT_ADD_FRIEND_URL}`
-          }]
-        });
-      }
+    } catch (e) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: nonFriendNotice }]
+      });
     }
   }
 
