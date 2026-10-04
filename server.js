@@ -11,16 +11,23 @@ const app = express();
 let chatData = {};
 let subscriptions = {};
 let userLastActiveTopic = {};
-let userLastActiveGroup = {};
+let userGroups = {}; // Tracks groups each user has interacted with: { userId: Set([chatId1, chatId2]) }
 
 const TRIAL_DAYS = 7;
 const BOT_ADD_FRIEND_URL = 'https://line.me/R/ti/p/@share_note';
 
 function getChatStore(chatId) {
   if (!chatData[chatId]) {
-    chatData[chatId] = { notes: {}, latestTopic: "", topicOrder: [] };
+    chatData[chatId] = { notes: {}, latestTopic: "", topicOrder: [], groupName: chatId };
   }
   return chatData[chatId];
+}
+
+function trackUserGroup(userId, chatId) {
+  if (!userGroups[userId]) {
+    userGroups[userId] = new Set();
+  }
+  userGroups[userId].add(chatId);
 }
 
 function checkAndManageSubscription(chatId) {
@@ -313,7 +320,7 @@ async function handleEvent(event) {
       if (targetNote) {
         if (!targetNote.isLocked) touchTopic(store, topicKey);
         userLastActiveTopic[userId] = topicKey;
-        userLastActiveGroup[userId] = chatId;
+        trackUserGroup(userId, chatId);
         
         const statusBadge = targetNote.isLocked ? `🏁 [COMPLETED & LOCKED]\n` : `📋 `;
         const notePlainText = createNotePlainText(trialHeader, statusBadge, targetNote);
@@ -344,7 +351,8 @@ async function handleEvent(event) {
   // Trigger: "enguide (English Summary Flex Card)
   if (lowerText === '"enguide' || lowerText === 'enguide' || lowerText === '`"enguide`' || lowerText === '“enguide' || lowerText === '”enguide') {
     const enSummary = [
-      '• "new topic / "new topic [name] "content [text]: Create a new topic with initial content and record the creator.',
+      '• "new [group] "topic [name] "content [text]: Create a new topic in a specific group from private DM.',
+      '• "new topic / "new topic [name] "content [text]: Create a new topic inside the current group chat.',
       '• "reply [topic] [text]: Reply to a topic quietly; records entry and notifies via DM.',
       '• edit: [text] / "edit reply [topic] [text]: Update or edit your existing reply quietly.',
       '• "content [topic] [text]: Add content/introduction to an existing topic.',
@@ -363,7 +371,8 @@ async function handleEvent(event) {
   // Trigger: "tguide (Thai Summary Flex Card)
   if (lowerText === '"tguide' || lowerText === 'tguide' || lowerText === '`"tguide`' || lowerText === '“tguide' || lowerText === '”tguide') {
     const thSummary = [
-      '• "new topic / "new topic [name] "content [text]: สร้างหัวข้อใหม่พร้อมเนื้อหาเริ่มต้นและบันทึกชื่อผู้สร้าง',
+      '• "new [group] "topic [name] "content [text]: สร้างหัวข้อใหม่ในกลุ่มที่ระบุผ่านแชทส่วนตัว',
+      '• "new topic / "new topic [name] "content [text]: สร้างหัวข้อใหม่พร้อมเนื้อหาเริ่มต้นในห้องแชทกลุ่มนี้',
       '• "reply [topic] [text]: ตอบกลับหัวข้อแบบเงียบๆ บันทึกและส่งยืนยันเข้าแชทส่วนตัว (DM)',
       '• edit: [text] / "edit reply [topic] [text]: อัปเดตหรือแก้ไขข้อความที่เคยตอบกลับไปแล้ว',
       '• "content [topic] [text]: เพิ่มเนื้อหาหรือบทนำให้กับหัวข้อที่มีอยู่',
@@ -397,92 +406,114 @@ async function handleEvent(event) {
 
   // Handle Private 1-on-1 DM Chat Interactions
   if (!isGroup) {
-    let targetChatId = userLastActiveGroup[userId];
-    
-    // Fallback search across active stores if userLastActiveGroup is not set but userLastActiveTopic matches
-    if (!targetChatId || !chatData[targetChatId]) {
-      for (const gId of Object.keys(chatData)) {
-        if (userLastActiveTopic[userId] && chatData[gId].notes[userLastActiveTopic[userId]]) {
-          targetChatId = gId;
-          break;
+    // Check if user is trying to create a new topic using explicit format: "new [group name] "topic [topic name] "content [text]
+    if (lowerText.startsWith('"new ')) {
+      const subText = rawText.substring(5).trim();
+      const topicIndex = subText.toLowerCase().indexOf('"topic ');
+      
+      if (topicIndex !== -1) {
+        const groupQuery = subText.substring(0, topicIndex).trim().toLowerCase();
+        const remainder = subText.substring(topicIndex + 7).trim();
+        const contentIndex = remainder.toLowerCase().indexOf('"content ');
+
+        let targetChatId = null;
+        for (const gId of Object.keys(chatData)) {
+          const store = chatData[gId];
+          if ((store.groupName && store.groupName.toLowerCase() === groupQuery) || gId.toLowerCase().includes(groupQuery)) {
+            targetChatId = gId;
+            break;
+          }
         }
+
+        if (!targetChatId) {
+          // Fallback to user's attended groups if exact match fails
+          const attended = userGroups[userId] ? Array.from(userGroups[userId]) : [];
+          for (const gId of attended) {
+            const store = chatData[gId];
+            if (store && store.groupName && store.groupName.toLowerCase().includes(groupQuery)) {
+              targetChatId = gId;
+              break;
+            }
+          }
+        }
+
+        if (!targetChatId) {
+          return client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{ type: 'text', text: `❌ Group "${subText.substring(0, topicIndex).trim()}" not found or you haven't interacted with it yet.` }]
+          });
+        }
+
+        let topicName = "";
+        let initialContent = "";
+
+        if (contentIndex !== -1) {
+          topicName = remainder.substring(0, contentIndex).trim();
+          initialContent = remainder.substring(contentIndex + 9).trim();
+        } else {
+          topicName = remainder;
+        }
+
+        if (!topicName) {
+          return client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{ type: 'text', text: `❌ Please provide a topic name after "topic`. }]
+          });
+        }
+
+        const activeStore = chatData[targetChatId];
+        const key = topicName.toLowerCase();
+        if (activeStore.notes[key]) {
+          return client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{ type: 'text', text: `⚠️ Warning: The topic "${topicName}" already exists in that group!` }]
+          });
+        }
+
+        const entries = initialContent ? [{ text: initialContent, userId: userId, displayName: displayName }] : [];
+        activeStore.notes[key] = { 
+          title: topicName, 
+          entries: entries, 
+          creatorId: userId, 
+          creatorName: displayName, 
+          editCount: 0, 
+          isLocked: false, 
+          createdAt: getShortTimestamp() 
+        };
+        activeStore.latestTopic = key;
+        touchTopic(activeStore, key);
+        userLastActiveTopic[userId] = key;
+
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `✨ New topic "${topicName}" has been successfully created in group!` }]
+        });
+      }
+    }
+
+    let targetChatId = null;
+    for (const gId of Object.keys(chatData)) {
+      if (userLastActiveTopic[userId] && chatData[gId].notes[userLastActiveTopic[userId]]) {
+        targetChatId = gId;
+        break;
       }
     }
 
     if (!targetChatId || !chatData[targetChatId]) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `📌 Please type "pin" or "view [topic]" inside your target group chat first so I know which group to target!` }]
+        messages: [{ type: 'text', text: `📌 Please use format: "new [group name] "topic [name] "content [text] to create notes directly from private chat.` }]
       });
     }
 
     const activeStore = chatData[targetChatId];
-    const sub = checkAndManageSubscription(targetChatId);
-    const trialHeader = getTrialHeader(sub);
-
-    // Allow creating new topics directly from private DM if desired
-    if (lowerText.startsWith('"new topic ')) {
-      const subText = rawText.substring(11).trim();
-      const contentIndex = subText.toLowerCase().indexOf('"content ');
-      
-      let topicName = "";
-      let initialContent = "";
-
-      if (contentIndex !== -1) {
-        topicName = subText.substring(0, contentIndex).trim();
-        initialContent = subText.substring(contentIndex + 9).trim();
-      } else {
-        const altContentIndex = subText.toLowerCase().indexOf('content ');
-        if (altContentIndex !== -1) {
-          topicName = subText.substring(0, altContentIndex).trim();
-          initialContent = subText.substring(altContentIndex + 8).trim();
-        } else {
-          topicName = subText;
-        }
-      }
-
-      if (!topicName) {
-        return client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{ type: 'text', text: `❌ Please provide a topic name after "new topic".` }]
-        });
-      }
-
-      const key = topicName.toLowerCase();
-      if (activeStore.notes[key]) {
-        return client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{ type: 'text', text: `⚠️ Warning: The topic "${topicName}" already exists in your active group!` }]
-        });
-      }
-
-      const entries = initialContent ? [{ text: initialContent, userId: userId, displayName: displayName }] : [];
-      activeStore.notes[key] = { 
-        title: topicName, 
-        entries: entries, 
-        creatorId: userId, 
-        creatorName: displayName, 
-        editCount: 0, 
-        isLocked: false, 
-        createdAt: getShortTimestamp() 
-      };
-      activeStore.latestTopic = key;
-      touchTopic(activeStore, key);
-      userLastActiveTopic[userId] = key;
-
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `✨ New topic "${topicName}" has been successfully created in your group chat!` }]
-      });
-    }
-
     const currentKey = userLastActiveTopic[userId];
     const note = currentKey ? activeStore.notes[currentKey] : null;
 
     if (!note || note.isLocked) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `❌ No active note selected. Type "view [topic]" or "pin" in your group chat first.` }]
+        messages: [{ type: 'text', text: `❌ No active note selected.` }]
       });
     }
 
@@ -658,10 +689,9 @@ async function handleEvent(event) {
   }
 
   const store = getChatStore(chatId);
+  store.groupName = chatId;
+  trackUserGroup(userId, chatId);
   const nonFriendNotice = `⚠️ @${displayName} Please add friend with Share Note to receive private messages (note view, summary, reply, and edit confirmation):\n${BOT_ADD_FRIEND_URL}`;
-
-  // Record active group context whenever group triggers happen
-  userLastActiveGroup[userId] = chatId;
 
   // HANDLE '"reply [topic] [text]' COMMAND DIRECTLY IN GROUP
   if (lowerText.startsWith('"reply ') || lowerText.startsWith('reply ')) {
@@ -1144,7 +1174,7 @@ async function handleEvent(event) {
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: notePlainText }] });
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `✅ Note "${currentNote.title}" has5 been sent to your private chat!` }]
+        messages: [{ type: 'text', text: `✅ Note "${currentNote.title}" has been sent to your private chat!` }]
       });
     } catch (e) {
       return client.replyMessage({
