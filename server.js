@@ -11,23 +11,30 @@ const app = express();
 let chatData = {};
 let subscriptions = {};
 let userLastActiveTopic = {};
-let userGroups = {};
+let userGroups = {}; // Stores group info per user: { userId: Map(chatId -> { groupName, isCreator }) }
 
 const TRIAL_DAYS = 7;
 const BOT_ADD_FRIEND_URL = 'https://line.me/R/ti/p/@share_note';
 
 function getChatStore(chatId) {
   if (!chatData[chatId]) {
-    chatData[chatId] = { notes: {}, latestTopic: "", topicOrder: [], groupName: chatId };
+    chatData[chatId] = { notes: {}, latestTopic: "", topicOrder: [], groupName: chatId, creatorId: null };
   }
   return chatData[chatId];
 }
 
-function trackUserGroup(userId, chatId) {
+function cleanGroupName(name) {
+  return name.replace(/[^\w\sа-яก-ฮ]/gi, '').trim().toLowerCase();
+}
+
+function trackUserGroup(userId, chatId, groupName, isCreator = false) {
   if (!userGroups[userId]) {
-    userGroups[userId] = new Set();
+    userGroups[userId] = new Map();
   }
-  userGroups[userId].add(chatId);
+  const existing = userGroups[userId].get(chatId) || { groupName: groupName, isCreator: false };
+  if (isCreator) existing.isCreator = true;
+  if (groupName && groupName !== chatId) existing.groupName = groupName;
+  userGroups[userId].set(chatId, existing);
 }
 
 function checkAndManageSubscription(chatId) {
@@ -236,7 +243,7 @@ function createPinPlainText(trialHeader, store) {
     pinText += `\n${idx + 1}. 📌 ${note.title} (${replyCount} replies)`;
   });
   
-  pinText += `\n\n☝️ Type: view [topic name] to open it here.`;
+  pinText += `\n\n☝️ Type: "view [topic name] to open it here.`;
   return pinText;
 }
 
@@ -320,7 +327,7 @@ async function handleEvent(event) {
       if (targetNote) {
         if (!targetNote.isLocked) touchTopic(store, topicKey);
         userLastActiveTopic[userId] = topicKey;
-        trackUserGroup(userId, chatId);
+        trackUserGroup(userId, chatId, store.groupName, store.creatorId === userId);
         
         const statusBadge = targetNote.isLocked ? `🏁 [COMPLETED & LOCKED]\n` : `📋 `;
         const notePlainText = createNotePlainText(trialHeader, statusBadge, targetNote);
@@ -348,16 +355,22 @@ async function handleEvent(event) {
   const rawText = event.message.text.trim();
   const lowerText = rawText.toLowerCase();
 
-  // Trigger: "enguide (English Summary Flex Card)
-  if (lowerText === '"enguide' || lowerText === 'enguide' || lowerText === '`"enguide`' || lowerText === '“enguide' || lowerText === '”enguide') {
+  // Strict check: All triggers in group chat must start with quotation mark (")
+  if (isGroup && !rawText.startsWith('"')) {
+    return Promise.resolve(null);
+  }
+
+  // Trigger: "enguide
+  if (lowerText === '"enguide') {
     const enSummary = [
+      '• "my group: View list of attended groups and your role (Creator / Member).',
       '• "new [group] "topic [name] "content [text]: Create a new topic in a specific group from private DM.',
       '• "new topic / "new topic [name] "content [text]: Create a new topic inside the current group chat.',
       '• "reply [topic] [text]: Reply to a topic quietly; records entry and notifies via DM.',
       '• edit: [text] / "edit reply [topic] [text]: Update or edit your existing reply quietly.',
       '• "content [topic] [text]: Add content/introduction to an existing topic.',
       '• "edit content [topic] [text]: Edit the main text of a topic (creator only).',
-      '• pin: Display the latest topic flex message card in the group chat.',
+      '• "pin: Display the latest topic flex message card in the group chat.',
       '• "note [topic] done: Complete and lock a project note, archiving its report.',
       '• "status: Check current subscription/trial status and validity.',
       '• "subscribe: Display secure LINE Pay checkout options for plans.'
@@ -368,16 +381,17 @@ async function handleEvent(event) {
     });
   }
 
-  // Trigger: "tguide (Thai Summary Flex Card)
-  if (lowerText === '"tguide' || lowerText === 'tguide' || lowerText === '`"tguide`' || lowerText === '“tguide' || lowerText === '”tguide') {
+  // Trigger: "tguide
+  if (lowerText === '"tguide') {
     const thSummary = [
+      '• "my group: แสดงรายการกลุ่มที่คุณเคยเข้าร่วมและสถานะของคุณ (ผู้สร้างกลุ่ม / สมาชิก)',
       '• "new [group] "topic [name] "content [text]: สร้างหัวข้อใหม่ในกลุ่มที่ระบุผ่านแชทส่วนตัว',
       '• "new topic / "new topic [name] "content [text]: สร้างหัวข้อใหม่พร้อมเนื้อหาเริ่มต้นในห้องแชทกลุ่มนี้',
       '• "reply [topic] [text]: ตอบกลับหัวข้อแบบเงียบๆ บันทึกและส่งยืนยันเข้าแชทส่วนตัว (DM)',
       '• edit: [text] / "edit reply [topic] [text]: อัปเดตหรือแก้ไขข้อความที่เคยตอบกลับไปแล้ว',
       '• "content [topic] [text]: เพิ่มเนื้อหาหรือบทนำให้กับหัวข้อที่มีอยู่',
       '• "edit content [topic] [text]: แก้ไขเนื้อหาหลักของหัวข้อ (จำกัดเฉพาะผู้สร้าง)',
-      '• pin: แสดงการ์ด Flex ข้อความของหัวข้อล่าสุดในแชทกลุ่ม',
+      '• "pin: แสดงการ์ด Flex ข้อความของหัวข้อล่าสุดในแชทกลุ่ม',
       '• "note [topic] done: ปิดงานและล็อกโน้ตโปรเจกต์ พร้อมสรุปรายงาน',
       '• "status: ตรวจสอบสถานะแพ็กเกจและวันหมดอายุของกลุ่ม',
       '• "subscribe: แสดงปุ่มชำระเงินผ่าน LINE Pay สำหรับแพ็กเกจ'
@@ -406,29 +420,60 @@ async function handleEvent(event) {
 
   // Handle Private 1-on-1 DM Chat Interactions
   if (!isGroup) {
+    // Trigger: "my group (Private DM only or anywhere)
+    if (lowerText === '"my group' || lowerText === 'my group') {
+      const attendedMap = userGroups[userId];
+      if (!attendedMap || attendedMap.size === 0) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `📌 You haven't interacted with any groups yet. Type "pin" or participate in a group chat first!` }]
+        });
+      }
+
+      let msg = `📋 [YOUR ATTENDED GROUPS]\nHere are the groups you have joined:\n`;
+      let idx = 1;
+      for (let [gId, info] of attendedMap.entries()) {
+        const roleTag = info.isCreator ? `👑 Creator` : `👤 Member`;
+        msg += `\n${idx}. ${info.groupName} (${roleTag})`;
+        idx++;
+      }
+      msg += `\n\n💡 Tip: You can copy a group name and use:\n"new [group name] "topic [name] "content [text]`;
+
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: msg }]
+      });
+    }
+
     if (lowerText.startsWith('"new ')) {
       const subText = rawText.substring(5).trim();
       const topicIndex = subText.toLowerCase().indexOf('"topic ');
       
       if (topicIndex !== -1) {
-        const groupQuery = subText.substring(0, topicIndex).trim().toLowerCase();
+        const groupQuery = cleanGroupName(subText.substring(0, topicIndex).trim());
         const remainder = subText.substring(topicIndex + 7).trim();
         const contentIndex = remainder.toLowerCase().indexOf('"content ');
 
         let targetChatId = null;
-        for (const gId of Object.keys(chatData)) {
-          const store = chatData[gId];
-          if ((store.groupName && store.groupName.toLowerCase() === groupQuery) || gId.toLowerCase().includes(groupQuery)) {
-            targetChatId = gId;
-            break;
+        
+        // Match against stored groups for this user using cleaned names
+        const attendedMap = userGroups[userId];
+        if (attendedMap) {
+          for (const [gId, info] of attendedMap.entries()) {
+            const cleanStoredName = cleanGroupName(info.groupName);
+            if (cleanStoredName.includes(groupQuery) || groupQuery.includes(cleanStoredName)) {
+              targetChatId = gId;
+              break;
+            }
           }
         }
 
+        // Fallback search across all chatData if not found in userGroups
         if (!targetChatId) {
-          const attended = userGroups[userId] ? Array.from(userGroups[userId]) : [];
-          for (const gId of attended) {
+          for (const gId of Object.keys(chatData)) {
             const store = chatData[gId];
-            if (store && store.groupName && store.groupName.toLowerCase().includes(groupQuery)) {
+            const cleanStoreName = cleanGroupName(store.groupName || gId);
+            if (cleanStoreName.includes(groupQuery) || groupQuery.includes(cleanStoreName)) {
               targetChatId = gId;
               break;
             }
@@ -438,7 +483,7 @@ async function handleEvent(event) {
         if (!targetChatId) {
           return client.replyMessage({
             replyToken: event.replyToken,
-            messages: [{ type: 'text', text: `❌ Group "${subText.substring(0, topicIndex).trim()}" not found or you haven't interacted with it yet.` }]
+            messages: [{ type: 'text', text: `❌ Group not found. Type "my group" to see your attended group names.` }]
           });
         }
 
@@ -500,7 +545,7 @@ async function handleEvent(event) {
     if (!targetChatId || !chatData[targetChatId]) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `📌 Please use format: "new [group name] "topic [name] "content [text] to create notes directly from private chat.` }]
+        messages: [{ type: 'text', text: `📌 Please type "my group" to check your groups, or use format:\n"new [group name] "topic [name] "content [text]` }]
       });
     }
 
@@ -522,9 +567,8 @@ async function handleEvent(event) {
       });
     }
 
-    // 1. Handle '"reply [text]' in DM
-    if (lowerText.startsWith('"reply ') || lowerText.startsWith('reply ')) {
-      const replyMessageContent = rawText.startsWith('"reply ') ? rawText.substring(7).trim() : rawText.substring(6).trim();
+    if (lowerText.startsWith('"reply ')) {
+      const replyMessageContent = rawText.substring(7).trim();
       if (!replyMessageContent) {
         return client.replyMessage({
           replyToken: event.replyToken,
@@ -551,13 +595,12 @@ async function handleEvent(event) {
       });
     }
 
-    // 2. Handle '"edit reply [text]' or 'edit: [text]' in DM
-    const isEditReplyCmd = lowerText.startsWith('"edit reply ') || lowerText.startsWith('edit reply ');
+    const isEditReplyCmd = lowerText.startsWith('"edit reply ');
     const isEditColon = lowerText.startsWith('edit:');
     
     if (isEditReplyCmd || isEditColon) {
       const messageContent = isEditReplyCmd 
-        ? (rawText.startsWith('"edit reply ') ? rawText.substring(12).trim() : rawText.substring(11).trim())
+        ? rawText.substring(12).trim()
         : rawText.substring(rawText.indexOf(':') + 1).trim();
 
       if (!messageContent) {
@@ -586,9 +629,8 @@ async function handleEvent(event) {
       });
     }
 
-    // 3. Handle '"edit content [text]' in DM
-    if (lowerText.startsWith('"edit content ') || lowerText.startsWith('edit content ')) {
-      const newContent = rawText.startsWith('"edit content ') ? rawText.substring(14).trim() : rawText.substring(13).trim();
+    if (lowerText.startsWith('"edit content ')) {
+      const newContent = rawText.substring(14).trim();
       
       if (note.creatorId && note.creatorId !== userId) {
         return client.replyMessage({
@@ -619,7 +661,6 @@ async function handleEvent(event) {
       });
     }
 
-    // 4. Handle '"note [topic] done' or '"note done' in DM
     if (lowerText.startsWith('"note ') && lowerText.endsWith(' done')) {
       note.isLocked = true;
       activeStore.topicOrder = activeStore.topicOrder.filter(k => k !== currentKey);
@@ -633,7 +674,6 @@ async function handleEvent(event) {
       });
     }
 
-    // Default fallback for plain text in DM (treat as normal reply)
     const messageContent = rawText;
     const timestamp = getShortTimestamp();
     const existingReplyIndex = note.entries.findIndex((e, idx) => idx > 0 && e.userId === userId);
@@ -658,7 +698,7 @@ async function handleEvent(event) {
   const sub = checkAndManageSubscription(chatId);
   const trialHeader = getTrialHeader(sub);
 
-  if (lowerText === '"status' || lowerText === 'status') {
+  if (lowerText === '"status') {
     const expiryStr = new Date(sub.expiresAt).toLocaleDateString();
     return client.replyMessage({
       replyToken: event.replyToken,
@@ -666,7 +706,7 @@ async function handleEvent(event) {
     });
   }
 
-  if (lowerText === '"subscribe' || lowerText === 'subscribe') {
+  if (lowerText === '"subscribe') {
     const hostUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
     const monthlyCheckoutUrl = `${hostUrl}/line-pay/confirm?chatId=${chatId}&plan=monthly`;
     const yearlyCheckoutUrl = `${hostUrl}/line-pay/confirm?chatId=${chatId}&plan=yearly`;
@@ -694,13 +734,23 @@ async function handleEvent(event) {
   }
 
   const store = getChatStore(chatId);
-  store.groupName = chatId;
-  trackUserGroup(userId, chatId);
+  if (!store.groupName || store.groupName === chatId) {
+    // Attempt to fetch group name if available, or fallback to rawText of first message or default name
+    store.groupName = "Group Chat";
+  }
+  
+  // Set group creator if not set yet
+  if (!store.creatorId) {
+    store.creatorId = userId;
+  }
+  const isCreator = store.creatorId === userId;
+  trackUserGroup(userId, chatId, store.groupName, isCreator);
+
   const nonFriendNotice = `⚠️ @${displayName} Please add friend with Share Note to receive private messages (note view, summary, reply, and edit confirmation):\n${BOT_ADD_FRIEND_URL}`;
 
   // HANDLE '"reply [topic] [text]' COMMAND DIRECTLY IN GROUP
-  if (lowerText.startsWith('"reply ') || lowerText.startsWith('reply ')) {
-    const queryPart = rawText.startsWith('"reply ') ? rawText.substring(7).trim() : rawText.substring(6).trim();
+  if (lowerText.startsWith('"reply ')) {
+    const queryPart = rawText.substring(7).trim();
     const allKeys = store.topicOrder.concat(Object.keys(store.notes).filter(k => !store.topicOrder.includes(k)));
     
     const matchedKey = allKeys
@@ -760,8 +810,8 @@ async function handleEvent(event) {
   }
 
   // HANDLE '"edit reply [topic] [text]' COMMAND DIRECTLY IN GROUP
-  if (lowerText.startsWith('"edit reply ') || lowerText.startsWith('edit reply ')) {
-    const queryPart = rawText.startsWith('"edit reply ') ? rawText.substring(12).trim() : rawText.substring(11).trim();
+  if (lowerText.startsWith('"edit reply ')) {
+    const queryPart = rawText.substring(12).trim();
     const allKeys = store.topicOrder.concat(Object.keys(store.notes).filter(k => !store.topicOrder.includes(k)));
     
     const matchedKey = allKeys
@@ -805,72 +855,6 @@ async function handleEvent(event) {
     const updatedEntry = { text: newContent, userId: userId, displayName: displayName, timestamp: timestamp, isEdited: true };
     currentNote.entries.splice(existingIndex, 1);
     currentNote.entries.splice(1, 0, updatedEntry);
-
-    try {
-      await client.pushMessage({
-        to: userId,
-        messages: [{ type: 'text', text: `✅ Your reply for "${currentNote.title}" has been updated successfully!` }]
-      });
-      return Promise.resolve(null);
-    } catch (e) {
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: nonFriendNotice }]
-      });
-    }
-  }
-
-  // HANDLE 'edit: [text]' COMMAND FOR NON-FRIENDS IN GROUP
-  if (lowerText.startsWith('edit:')) {
-    let targetChatId = null;
-    let activeStore = null;
-
-    for (const gId of Object.keys(chatData)) {
-      if (userLastActiveTopic[userId] && chatData[gId].notes[userLastActiveTopic[userId]]) {
-        targetChatId = gId;
-        activeStore = chatData[gId];
-        break;
-      }
-    }
-
-    if (!targetChatId || !activeStore) {
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `📌 Please type "pin" or "view [topic]" inside your group chat first to select an active note topic.` }]
-      });
-    }
-
-    const currentKey = userLastActiveTopic[userId];
-    const note = activeStore.notes[currentKey];
-
-    if (!note || note.isLocked) {
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `❌ Note not found or is already locked.` }]
-      });
-    }
-
-    const messageContent = rawText.substring(rawText.indexOf(':') + 1).trim();
-    if (!messageContent) {
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `❌ Please provide content for your edit.` }]
-      });
-    }
-
-    const timestamp = getShortTimestamp();
-    const existingIndex = note.entries.findIndex((e, idx) => idx > 0 && e.userId === userId);
-    
-    if (existingIndex === -1) {
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `❌ You haven't replied to "${currentNote.title}" yet.` }]
-      });
-    }
-
-    const updatedEntry = { text: messageContent, userId: userId, displayName: displayName, timestamp: timestamp, isEdited: true };
-    note.entries.splice(existingIndex, 1);
-    note.entries.splice(1, 0, updatedEntry);
 
     try {
       await client.pushMessage({
@@ -948,6 +932,9 @@ async function handleEvent(event) {
       });
     }
 
+    // Capture group name context if this is the first topic or if user specified it
+    store.groupName = store.groupName || chatId;
+
     const key = topicName.toLowerCase();
     if (store.notes[key]) {
       const duplicateMsg = `⚠️ Warning: The topic "${topicName}" already exists in this group!`;
@@ -975,6 +962,7 @@ async function handleEvent(event) {
     store.latestTopic = key;
     touchTopic(store, key);
     userLastActiveTopic[userId] = key;
+    trackUserGroup(userId, chatId, store.groupName, store.creatorId === userId);
 
     try {
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: createNotePlainText(trialHeader, '✨ ', store.notes[key]) }] });
@@ -1037,7 +1025,6 @@ async function handleEvent(event) {
     }
   }
 
-  // HANDLE '"edit content xxxx xxxx'
   if (lowerText.startsWith('"edit content ')) {
     const contentAfterEdit = rawText.substring(14).trim().toLowerCase();
     const matchedKey = store.topicOrder.sort((a, b) => b.length - a.length).find(k => contentAfterEdit === k || contentAfterEdit.startsWith(k + ' '));
@@ -1089,10 +1076,7 @@ async function handleEvent(event) {
     });
   }
 
-  const isPinStart = lowerText === 'pin' || lowerText.startsWith('pin ');
-  const isPinQuotes = lowerText.includes('"pin');
-
-  if (isPinStart || isPinQuotes) {
+  if (lowerText === '"pin') {
     if (store.topicOrder.length === 0) {
       return client.replyMessage({
         replyToken: event.replyToken,
@@ -1112,17 +1096,8 @@ async function handleEvent(event) {
     });
   }
 
-  const isViewStart = lowerText.startsWith('view ') || lowerText === 'view' || lowerText === 'note';
-  const isViewQuotes = lowerText.includes('"view') || lowerText.includes('"note');
-
-  if (isViewStart || isViewQuotes) {
-    let queryPart = "";
-    if (lowerText.startsWith('view ')) {
-      queryPart = rawText.substring(5).trim();
-    } else if (lowerText.includes('"view')) {
-      const viewIndex = lowerText.indexOf('"view');
-      queryPart = rawText.substring(viewIndex + 5).trim();
-    }
+  if (lowerText.startsWith('"view ') || lowerText === '"view') {
+    const queryPart = rawText.startsWith('"view ') ? rawText.substring(6).trim() : "";
 
     const allKeys = store.topicOrder.concat(Object.keys(store.notes).filter(k => !store.topicOrder.includes(k)));
     
@@ -1139,7 +1114,6 @@ async function handleEvent(event) {
           });
         }
         
-        // Plain text list of topics sent privately to DM
         try {
           const pinText = createPinPlainText(trialHeader, store);
           await client.pushMessage({ to: userId, messages: [{ type: 'text', text: pinText }] });
@@ -1184,7 +1158,7 @@ async function handleEvent(event) {
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `⚠️ @${displayName} Please add friend with Share Note to receive private messages (note view, summary, reply, and edit confirmation):\n${BOT_ADD_FRIEND_URL}` }]
+        messages: [{ type: 'text', text: nonFriendNotice }]
       });
     }
   }
@@ -1194,5 +1168,5 @@ async function handleEvent(event) {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running live on port ${PORT}`);
+  console.log(`Server is running live on port ${PORT});
 });
