@@ -15,7 +15,7 @@ let userGroups = {};
 
 const TRIAL_DAYS = 7;
 const BOT_ADD_FRIEND_URL = 'https://line.me/R/ti/p/@share_note';
-const ADMIN_USER_ID = ''; // Optional: set your admin user ID if you want to restrict manual activation
+const ADMIN_USER_ID = ''; // ⚠️ Put your personal LINE User ID here (e.g. 'U123456789...')
 
 function getChatStore(chatId) {
   if (!chatData[chatId]) {
@@ -242,7 +242,7 @@ function createPinPlainText(trialHeader, store) {
     pinText += `\n${idx + 1}. 📌 ${note.title} (${replyCount} replies)`;
   });
   
-  pinText += `\n\n☝️ Type: "view [topic name] to open it here.`;
+  pinText += `\n\n☝️ Type: "view [topic name]" to open it here.`;
   return pinText;
 }
 
@@ -349,8 +349,45 @@ async function handleEvent(event) {
   // ABSOLUTE ISOLATED PRIVATE DM HANDLER
   // ==========================================
   if (!isGroup) {
-    // Admin command to activate subscriptions manually: `"activate [chatId] [monthly/yearly]`
+    // Check Admin authorization (if ADMIN_USER_ID is set, verify it; otherwise allow current user or set your ID)
+    const isAdmin = ADMIN_USER_ID ? userId === ADMIN_USER_ID : true;
+
+    // Admin Command: `"admin groups` - lists all registered groups across the system privately
+    if (lowerText === '"admin groups' || lowerText === '"mygroups') {
+      if (!isAdmin) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `🔒 Unauthorized command.` }]
+        });
+      }
+
+      let groupSummary = `📋 [ALL REGISTERED GROUPS]\n`;
+      let count = 0;
+      for (const [gId, store] of Object.entries(chatData)) {
+        count++;
+        const sub = checkAndManageSubscription(gId);
+        groupSummary += `\n${count}. Name: ${store.groupName}\n   🆔 ID: ${gId}\n   📊 Status: ${sub.status.toUpperCase()} (Plan: ${sub.plan})\n`;
+      }
+
+      if (count === 0) {
+        groupSummary = `📌 No groups registered in the system yet.`;
+      }
+
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: groupSummary }]
+      });
+    }
+
+    // Admin Command: `"activate [chatId] [monthly/yearly]`
     if (lowerText.startsWith('"activate ')) {
+      if (!isAdmin) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `🔒 Unauthorized command.` }]
+        });
+      }
+
       const parts = rawText.substring(10).trim().split(' ');
       const targetChatId = parts[0];
       const plan = (parts[1] || 'monthly').toLowerCase();
@@ -403,12 +440,11 @@ async function handleEvent(event) {
         });
       }
 
-      let msg = `📋 [ATTENDED GROUPS LIST]\nHere are the groups available:\n`;
+      let msg = `📋 [ATTENDED GROUPS LIST]\nHere are your groups (copy your Group ID to send to admin upon payment):\n`;
       foundGroups.forEach((g, idx) => {
         const roleTag = g.isCreator ? `👑 Creator` : `👤 Member`;
-        msg += `\n${idx + 1}. ${g.name} (${roleTag})\n   🆔 ID: ${g.chatId}`;
+        msg += `\n${idx + 1}. ${g.name} (${roleTag})\n   🆔 Group ID: ${g.chatId}`;
       });
-      msg += `\n\n💡 Tip: To rename a group, type inside your group chat:\n"name [your group name]`;
 
       return client.replyMessage({
         replyToken: event.replyToken,
@@ -657,10 +693,9 @@ async function handleEvent(event) {
       '• edit: [text] / "edit reply [topic] [text]: Update or edit your existing reply quietly.',
       '• "content [topic] [text]: Add content/introduction to an existing topic.',
       '• "edit content [topic] [text]: Edit the main text of a topic (creator only).',
-      '• "pin: Display the latest topic flex message card in the group chat.',
+      '• "pin: Display the latest topic flex message card in the group chat (Creator only).',
       '• "note [topic] done: Complete and lock a project note, archiving its report.',
-      '• "status: Check current subscription/trial status and validity.',
-      '• "subscribe: Display manual payment instructions.'
+      '• "subscribe: Display manual payment instructions and info.'
     ];
     return client.replyMessage({
       replyToken: event.replyToken,
@@ -675,9 +710,8 @@ async function handleEvent(event) {
       '• edit: [text] / "edit reply [topic] [text]: อัปเดตหรือแก้ไขข้อความที่เคยตอบกลับไปแล้ว',
       '• "content [topic] [text]: เพิ่มเนื้อหาหรือบทนำให้กับหัวข้อที่มีอยู่',
       '• "edit content [topic] [text]: แก้ไขเนื้อหาหลักของหัวข้อ (จำกัดเฉพาะผู้สร้าง)',
-      '• "pin: แสดงการ์ด Flex ข้อความของหัวข้อล่าสุดในแชทกลุ่ม',
+      '• "pin: แสดงการ์ด Flex ข้อความของหัวข้อล่าสุดในแชทกลุ่ม (เฉพาะผู้สร้างกลุ่ม)',
       '• "note [topic] done: ปิดงานและล็อกโน้ตโปรเจกต์ พร้อมสรุปรายงาน',
-      '• "status: ตรวจสอบสถานะแพ็กเกจและวันหมดอายุของกลุ่ม',
       '• "subscribe: แสดงช่องทางการชำระเงิน'
     ];
     return client.replyMessage({
@@ -689,20 +723,12 @@ async function handleEvent(event) {
   const sub = checkAndManageSubscription(chatId);
   const trialHeader = getTrialHeader(sub);
 
-  if (lowerText === '"status') {
-    const expiryStr = new Date(sub.expiresAt).toLocaleDateString();
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [{ type: 'text', text: `${trialHeader}Group ID: ${chatId}\nStatus: ${sub.status.toUpperCase()}\nValid until: ${expiryStr}` }]
-    });
-  }
-
   if (lowerText === '"subscribe') {
     return client.replyMessage({
       replyToken: event.replyToken,
       messages: [{ 
         type: 'text', 
-        text: `💳 Subscription & Renewal Instructions:\n\nTo activate or extend your group subscription, please transfer funds to our account:\n- Bank: PromptPay / Bank Transfer\n- Account: xxx-x-xxxxx-x\n- Monthly Plan: 300 THB\n- Yearly Plan: 3,000 THB\n\nAfter transferring, send your slip and your Group ID (${chatId}) to the admin for manual activation!`
+        text: `💳 Subscription & Renewal Instructions:\n\nTo activate or extend your group subscription, please transfer funds to our account:\n- Bank: PromptPay / Bank Transfer\n- Account: xxx-x-xxxxx-x\n- Monthly Plan: 300 THB\n- Yearly Plan: 3,000 THB\n\n💡 To find your Group ID, type "my group in your private chat with this bot. Then send your payment slip and Group ID to the admin!`
       }]
     });
   }
