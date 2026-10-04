@@ -375,24 +375,35 @@ async function handleEvent(event) {
   // ABSOLUTE ISOLATED PRIVATE DM HANDLER
   // ==========================================
   if (!isGroup) {
-    // 1. Handle '"my group' command in private chat
+    // 1. Handle '"my group' command with global server-wide fallback
     if (lowerText === '"my group' || lowerText === 'my group' || lowerText === '`"my group`') {
-      const attendedMap = userGroups[userId];
-      if (!attendedMap || attendedMap.size === 0) {
+      let foundGroups = [];
+      
+      if (userGroups[userId] && userGroups[userId].size > 0) {
+        for (let [gId, info] of userGroups[userId].entries()) {
+          foundGroups.push({ name: info.groupName || gId, isCreator: info.isCreator });
+        }
+      } else {
+        for (let gId of Object.keys(chatData)) {
+          const store = chatData[gId];
+          const isCreator = store.creatorId === userId || Object.values(store.notes).some(n => n.creatorId === userId);
+          foundGroups.push({ name: store.groupName || gId, isCreator: isCreator });
+        }
+      }
+
+      if (foundGroups.length === 0) {
         return client.replyMessage({
           replyToken: event.replyToken,
-          messages: [{ type: 'text', text: `📌 You haven't interacted with any groups yet. Type "pin" or participate in a group chat first!` }]
+          messages: [{ type: 'text', text: `📌 No groups found on the server yet. Please interact or create a note inside your group chat first!` }]
         });
       }
 
-      let msg = `📋 [YOUR ATTENDED GROUPS]\nHere are the groups you have joined:\n`;
-      let idx = 1;
-      for (let [gId, info] of attendedMap.entries()) {
-        const roleTag = info.isCreator ? `👑 Creator` : `👤 Member`;
-        msg += `\n${idx}. ${info.groupName} (${roleTag})`;
-        idx++;
-      }
-      msg += `\n\n💡 Tip: You can copy a group name and use:\n"new [group name] "topic [name] "content [text]`;
+      let msg = `📋 [ATTENDED GROUPS LIST]\nHere are the groups available:\n`;
+      foundGroups.forEach((g, idx) => {
+        const roleTag = g.isCreator ? `👑 Creator` : `👤 Member`;
+        msg += `\n${idx + 1}. ${g.name} (${roleTag})`;
+      });
+      msg += `\n\n💡 Tip: Copy a group name above and use:\n"new [group name] "topic [name] "content [text]`;
 
       return client.replyMessage({
         replyToken: event.replyToken,
