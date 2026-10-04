@@ -11,7 +11,7 @@ const app = express();
 let chatData = {};
 let subscriptions = {};
 let userLastActiveTopic = {};
-let userGroups = {}; // Tracks groups each user has interacted with: { userId: Set([chatId1, chatId2]) }
+let userGroups = {};
 
 const TRIAL_DAYS = 7;
 const BOT_ADD_FRIEND_URL = 'https://line.me/R/ti/p/@share_note';
@@ -406,7 +406,6 @@ async function handleEvent(event) {
 
   // Handle Private 1-on-1 DM Chat Interactions
   if (!isGroup) {
-    // Check if user is trying to create a new topic using explicit format: "new [group name] "topic [topic name] "content [text]
     if (lowerText.startsWith('"new ')) {
       const subText = rawText.substring(5).trim();
       const topicIndex = subText.toLowerCase().indexOf('"topic ');
@@ -426,7 +425,6 @@ async function handleEvent(event) {
         }
 
         if (!targetChatId) {
-          // Fallback to user's attended groups if exact match fails
           const attended = userGroups[userId] ? Array.from(userGroups[userId]) : [];
           for (const gId of attended) {
             const store = chatData[gId];
@@ -510,10 +508,17 @@ async function handleEvent(event) {
     const currentKey = userLastActiveTopic[userId];
     const note = currentKey ? activeStore.notes[currentKey] : null;
 
-    if (!note || note.isLocked) {
+    if (!note) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `❌ No active note selected.` }]
+        messages: [{ type: 'text', text: `❌ No active note selected. Use "new [group name] "topic [name] "content [text]` }]
+      });
+    }
+
+    if (note.isLocked) {
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `❌ Selected note is already locked.` }]
       });
     }
 
@@ -859,7 +864,7 @@ async function handleEvent(event) {
     if (existingIndex === -1) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `❌ You haven't replied to "${note.title}" yet.` }]
+        messages: [{ type: 'text', text: `❌ You haven't replied to "${currentNote.title}" yet.` }]
       });
     }
 
@@ -1179,7 +1184,7 @@ async function handleEvent(event) {
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: nonFriendNotice }]
+        messages: [{ type: 'text', text: `⚠️ @${displayName} Please add friend with Share Note to receive private messages (note view, summary, reply, and edit confirmation):\n${BOT_ADD_FRIEND_URL}` }]
       });
     }
   }
