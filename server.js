@@ -348,16 +348,34 @@ async function handleEvent(event) {
     return Promise.resolve(null);
   }
 
-  const isGroup = event.source.groupId || event.source.roomId;
+  const isGroup = !!(event.source.groupId || event.source.roomId);
   const chatId = event.source.groupId || event.source.roomId || event.source.userId;
   const userId = event.source.userId;
   
   const rawText = event.message.text.trim();
   const lowerText = rawText.toLowerCase();
 
-  // HANDLE PRIVATE DM CHAT INTERACTIONS (Guaranteed isolation from group rules)
+  let displayName = "User";
+  try {
+    if (event.source.groupId) {
+      const profile = await client.getGroupMemberProfile(event.source.groupId, userId);
+      displayName = profile.displayName;
+    } else if (event.source.roomId) {
+      const profile = await client.getRoomMemberProfile(event.source.roomId, userId);
+      displayName = profile.displayName;
+    } else {
+      const profile = await client.getProfile(userId);
+      displayName = profile.displayName;
+    }
+  } catch (err) {
+    console.error("Profile fetch error:", err);
+  }
+
+  // ==========================================
+  // ABSOLUTE ISOLATED PRIVATE DM HANDLER
+  // ==========================================
   if (!isGroup) {
-    // 1. Handle '"my group' or 'my group' in Private DM
+    // 1. Handle '"my group' command in private chat
     if (lowerText === '"my group' || lowerText === 'my group' || lowerText === '`"my group`') {
       const attendedMap = userGroups[userId];
       if (!attendedMap || attendedMap.size === 0) {
@@ -382,7 +400,7 @@ async function handleEvent(event) {
       });
     }
 
-    // 2. Handle '"new [group] "topic [name] "content [text]' in Private DM
+    // 2. Handle '"new [group] "topic [name] "content [text]' command in private chat
     if (lowerText.startsWith('"new ')) {
       const subText = rawText.substring(5).trim();
       const topicIndex = subText.toLowerCase().indexOf('"topic ');
@@ -470,6 +488,7 @@ async function handleEvent(event) {
       }
     }
 
+    // 3. Handle active note replies/edits in private DM
     let targetChatId = null;
     for (const gId of Object.keys(chatData)) {
       if (userLastActiveTopic[userId] && chatData[gId].notes[userLastActiveTopic[userId]]) {
@@ -481,7 +500,7 @@ async function handleEvent(event) {
     if (!targetChatId || !chatData[targetChatId]) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `📌 Please type "my group" to view your groups, or use format:\n"new [group name] "topic [name] "content [text]` }]
+        messages: [{ type: 'text', text: `📌 Please type "my group" to check your groups, or use format:\n"new [group name] "topic [name] "content [text]` }]
       });
     }
 
@@ -631,6 +650,10 @@ async function handleEvent(event) {
     });
   }
 
+  // ==========================================
+  // GROUP CHAT HANDLERS BELOW
+  // ==========================================
+
   // Strict check: All triggers in group chat must start with quotation mark (")
   if (isGroup && !rawText.startsWith('"')) {
     return Promise.resolve(null);
@@ -676,22 +699,6 @@ async function handleEvent(event) {
       replyToken: event.replyToken,
       messages: [createGuideFlexMessage('🇹🇭 คู่มือคำสั่งทริกเกอร์', thSummary)]
     });
-  }
-
-  let displayName = "User";
-  try {
-    if (event.source.groupId) {
-      const profile = await client.getGroupMemberProfile(event.source.groupId, userId);
-      displayName = profile.displayName;
-    } else if (event.source.roomId) {
-      const profile = await client.getRoomMemberProfile(event.source.roomId, userId);
-      displayName = profile.displayName;
-    } else {
-      const profile = await client.getProfile(userId);
-      displayName = profile.displayName;
-    }
-  } catch (err) {
-    console.error("Profile fetch error:", err);
   }
 
   const sub = checkAndManageSubscription(chatId);
