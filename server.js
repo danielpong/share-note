@@ -375,6 +375,7 @@ async function handleEvent(event) {
   // ABSOLUTE ISOLATED PRIVATE DM HANDLER
   // ==========================================
   if (!isGroup) {
+    // 1. Handle '"my group' command
     if (lowerText === '"my group' || lowerText === 'my group' || lowerText === '`"my group`') {
       let foundGroups = [];
       
@@ -393,7 +394,7 @@ async function handleEvent(event) {
       if (foundGroups.length === 0) {
         return client.replyMessage({
           replyToken: event.replyToken,
-          messages: [{ type: 'text', text: `📌 No groups recorded yet. Type any trigger command (like "pin) inside your group chat first!` }]
+          messages: [{ type: 'text', text: `📌 No groups recorded yet. Type any trigger command inside your group chat first!` }]
         });
       }
 
@@ -410,6 +411,73 @@ async function handleEvent(event) {
       });
     }
 
+    // 2. Handle '"pin' command directly in private DM
+    if (lowerText === '"pin') {
+      let allStores = Object.keys(chatData).map(gId => chatData[gId]);
+      let combinedNotes = [];
+      
+      allStores.forEach(store => {
+        if (store.topicOrder && store.topicOrder.length > 0) {
+          store.topicOrder.forEach(k => {
+            if (store.notes[k]) combinedNotes.push({ store: store, key: k, note: store.notes[k] });
+          });
+        }
+      });
+
+      if (combinedNotes.length === 0) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `📌 No pinned topics found across your groups yet.` }]
+        });
+      }
+
+      let pinText = `📢 [PINNED TOPICS ACROSS GROUPS]\n`;
+      combinedNotes.slice(0, 10).forEach((item, idx) => {
+        const replyCount = Math.max(0, item.note.entries.length - 1);
+        pinText += `\n${idx + 1}. 📌 ${item.note.title} [Group: ${item.store.groupName}] (${replyCount} replies)`;
+      });
+      pinText += `\n\n☝️ Type: "view [topic name]" to open it here.`;
+
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: pinText }]
+      });
+    }
+
+    // 3. Handle '"view [topic]' command directly in private DM
+    if (lowerText.startsWith('"view ') || lowerText === '"view') {
+      const queryPart = rawText.startsWith('"view ') ? rawText.substring(6).trim().toLowerCase() : "";
+      
+      let matchedItem = null;
+      for (const gId of Object.keys(chatData)) {
+        const store = chatData[gId];
+        const allKeys = store.topicOrder.concat(Object.keys(store.notes).filter(k => !store.topicOrder.includes(k)));
+        const foundKey = allKeys.find(k => queryPart === k || k.includes(queryPart));
+        if (foundKey && store.notes[foundKey]) {
+          matchedItem = { store: store, key: foundKey, note: store.notes[foundKey] };
+          break;
+        }
+      }
+
+      if (!matchedItem) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `❌ No topic matching "${queryPart}" found across your groups.` }]
+        });
+      }
+
+      userLastActiveTopic[userId] = matchedItem.key;
+      const sub = checkAndManageSubscription(matchedItem.store.groupName);
+      const trialHeader = getTrialHeader(sub);
+      const statusBadge = matchedItem.note.isLocked ? `🏁 [COMPLETED & LOCKED]\n` : `📋 `;
+      const notePlainText = createNotePlainText(trialHeader, statusBadge, matchedItem.note);
+
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: notePlainText }]
+      });
+    }
+
     let targetChatId = null;
     for (const gId of Object.keys(chatData)) {
       if (userLastActiveTopic[userId] && chatData[gId].notes[userLastActiveTopic[userId]]) {
@@ -421,7 +489,7 @@ async function handleEvent(event) {
     if (!targetChatId || !chatData[targetChatId]) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `📌 Please type "pin" or "view [topic]" inside your group chat first to select an active note topic.` }]
+        messages: [{ type: 'text', text: `📌 Please type "pin" or "view [topic]" inside your group chat or private chat first.` }]
       });
     }
 
