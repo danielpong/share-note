@@ -355,10 +355,10 @@ async function handleEvent(event) {
   const rawText = event.message.text.trim();
   const lowerText = rawText.toLowerCase();
 
-  // Handle Private 1-on-1 DM Chat Interactions FIRST before any group restrictions
+  // HANDLE PRIVATE DM CHAT INTERACTIONS (Guaranteed isolation from group rules)
   if (!isGroup) {
-    // Trigger: "my group (Private DM)
-    if (lowerText === '"my group' || lowerText === 'my group') {
+    // 1. Handle '"my group' or 'my group' in Private DM
+    if (lowerText === '"my group' || lowerText === 'my group' || lowerText === '`"my group`') {
       const attendedMap = userGroups[userId];
       if (!attendedMap || attendedMap.size === 0) {
         return client.replyMessage({
@@ -382,6 +382,7 @@ async function handleEvent(event) {
       });
     }
 
+    // 2. Handle '"new [group] "topic [name] "content [text]' in Private DM
     if (lowerText.startsWith('"new ')) {
       const subText = rawText.substring(5).trim();
       const topicIndex = subText.toLowerCase().indexOf('"topic ');
@@ -480,7 +481,7 @@ async function handleEvent(event) {
     if (!targetChatId || !chatData[targetChatId]) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `📌 Please type "my group" to check your groups, or use format:\n"new [group name] "topic [name] "content [text]` }]
+        messages: [{ type: 'text', text: `📌 Please type "my group" to view your groups, or use format:\n"new [group name] "topic [name] "content [text]` }]
       });
     }
 
