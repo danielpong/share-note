@@ -15,6 +15,7 @@ let userGroups = {};
 
 const TRIAL_DAYS = 7;
 const BOT_ADD_FRIEND_URL = 'https://line.me/R/ti/p/@share_note';
+const ADMIN_USER_ID = ''; // Optional: set your admin user ID if you want to restrict manual activation
 
 function getChatStore(chatId) {
   if (!chatData[chatId]) {
@@ -241,7 +242,7 @@ function createPinPlainText(trialHeader, store) {
     pinText += `\n${idx + 1}. 📌 ${note.title} (${replyCount} replies)`;
   });
   
-  pinText += `\n\n☝️ Type: "view [topic name]" to open it here.`;
+  pinText += `\n\n☝️ Type: "view [topic name] to open it here.`;
   return pinText;
 }
 
@@ -257,31 +258,6 @@ app.post('/webhook', line.middleware(config), (req, res) => {
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-app.get('/line-pay/confirm', async (req, res) => {
-  const { chatId, plan } = req.query;
-  if (!chatId) return res.status(400).send("Invalid callback parameters.");
-
-  try {
-    const daysToAdd = plan === 'yearly' ? 365 : 30;
-    const now = new Date();
-    
-    if (!subscriptions[chatId] || subscriptions[chatId].status === 'expired') {
-      subscriptions[chatId] = { status: 'active', plan: plan || 'monthly', expiresAt: new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000) };
-    } else {
-      const currentExpiry = new Date(subscriptions[chatId].expiresAt);
-      const baseDate = currentExpiry > now ? currentExpiry : now;
-      subscriptions[chatId].expiresAt = new Date(baseDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
-      subscriptions[chatId].status = 'active';
-      subscriptions[chatId].plan = plan || 'monthly';
-    }
-
-    res.send(`<!DOCTYPE html><html><body style="font-family: Arial; text-align: center; margin-top: 50px;"><h2>✅ Payment Successful!</h2><p>Your subscription has been activated successfully. You can return to LINE.</p></body></html>`);
-  } catch (error) {
-    console.error("Payment confirmation error:", error);
-    res.status(500).send("Payment confirmation failed.");
-  }
-});
 
 const client = new line.messagingApi.MessagingApiClient(config);
 
@@ -373,18 +349,50 @@ async function handleEvent(event) {
   // ABSOLUTE ISOLATED PRIVATE DM HANDLER
   // ==========================================
   if (!isGroup) {
+    // Admin command to activate subscriptions manually: `"activate [chatId] [monthly/yearly]`
+    if (lowerText.startsWith('"activate ')) {
+      const parts = rawText.substring(10).trim().split(' ');
+      const targetChatId = parts[0];
+      const plan = (parts[1] || 'monthly').toLowerCase();
+
+      if (!targetChatId || !chatData[targetChatId]) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `❌ Invalid Chat ID or group store not found.` }]
+        });
+      }
+
+      const daysToAdd = plan === 'yearly' ? 365 : 30;
+      const now = new Date();
+      
+      if (!subscriptions[targetChatId] || subscriptions[targetChatId].status === 'expired') {
+        subscriptions[targetChatId] = { status: 'active', plan: plan, expiresAt: new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000) };
+      } else {
+        const currentExpiry = new Date(subscriptions[targetChatId].expiresAt);
+        const baseDate = currentExpiry > now ? currentExpiry : now;
+        subscriptions[targetChatId].expiresAt = new Date(baseDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+        subscriptions[targetChatId].status = 'active';
+        subscriptions[targetChatId].plan = plan;
+      }
+
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `✅ Successfully activated ${plan} plan for Group ID: ${targetChatId}` }]
+      });
+    }
+
     if (lowerText === '"my group' || lowerText === 'my group' || lowerText === '`"my group`') {
       let foundGroups = [];
       
       if (userGroups[userId] && userGroups[userId].size > 0) {
         for (let [gId, info] of userGroups[userId].entries()) {
-          foundGroups.push({ name: info.groupName || `Group (${gId.substring(0, 6)})`, isCreator: info.isCreator });
+          foundGroups.push({ chatId: gId, name: info.groupName || `Group (${gId.substring(0, 6)})`, isCreator: info.isCreator });
         }
       } else {
         for (let gId of Object.keys(chatData)) {
           const store = chatData[gId];
           const isCreator = store.creatorId === userId || Object.values(store.notes).some(n => n.creatorId === userId);
-          foundGroups.push({ name: store.groupName || `Group (${gId.substring(0, 6)})`, isCreator: isCreator });
+          foundGroups.push({ chatId: gId, name: store.groupName || `Group (${gId.substring(0, 6)})`, isCreator: isCreator });
         }
       }
 
@@ -398,7 +406,7 @@ async function handleEvent(event) {
       let msg = `📋 [ATTENDED GROUPS LIST]\nHere are the groups available:\n`;
       foundGroups.forEach((g, idx) => {
         const roleTag = g.isCreator ? `👑 Creator` : `👤 Member`;
-        msg += `\n${idx + 1}. ${g.name} (${roleTag})`;
+        msg += `\n${idx + 1}. ${g.name} (${roleTag})\n   🆔 ID: ${g.chatId}`;
       });
       msg += `\n\n💡 Tip: To rename a group, type inside your group chat:\n"name [your group name]`;
 
@@ -652,7 +660,7 @@ async function handleEvent(event) {
       '• "pin: Display the latest topic flex message card in the group chat.',
       '• "note [topic] done: Complete and lock a project note, archiving its report.',
       '• "status: Check current subscription/trial status and validity.',
-      '• "subscribe: Display secure LINE Pay checkout options for plans.'
+      '• "subscribe: Display manual payment instructions.'
     ];
     return client.replyMessage({
       replyToken: event.replyToken,
@@ -670,7 +678,7 @@ async function handleEvent(event) {
       '• "pin: แสดงการ์ด Flex ข้อความของหัวข้อล่าสุดในแชทกลุ่ม',
       '• "note [topic] done: ปิดงานและล็อกโน้ตโปรเจกต์ พร้อมสรุปรายงาน',
       '• "status: ตรวจสอบสถานะแพ็กเกจและวันหมดอายุของกลุ่ม',
-      '• "subscribe: แสดงปุ่มชำระเงินผ่าน LINE Pay สำหรับแพ็กเกจ'
+      '• "subscribe: แสดงช่องทางการชำระเงิน'
     ];
     return client.replyMessage({
       replyToken: event.replyToken,
@@ -685,26 +693,16 @@ async function handleEvent(event) {
     const expiryStr = new Date(sub.expiresAt).toLocaleDateString();
     return client.replyMessage({
       replyToken: event.replyToken,
-      messages: [{ type: 'text', text: `${trialHeader}Status: ${sub.status.toUpperCase()}\nValid until: ${expiryStr}` }]
+      messages: [{ type: 'text', text: `${trialHeader}Group ID: ${chatId}\nStatus: ${sub.status.toUpperCase()}\nValid until: ${expiryStr}` }]
     });
   }
 
   if (lowerText === '"subscribe') {
-    const hostUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
-    const monthlyCheckoutUrl = `${hostUrl}/line-pay/confirm?chatId=${chatId}&plan=monthly`;
-    const yearlyCheckoutUrl = `${hostUrl}/line-pay/confirm?chatId=${chatId}&plan=yearly`;
-
     return client.replyMessage({
       replyToken: event.replyToken,
       messages: [{ 
         type: 'text', 
-        text: `💳 Secure Checkout via LINE Pay:\n\nSelect your prepaid plan below to complete payment:`,
-        quickReply: {
-          items: [
-            { type: 'action', action: { type: 'uri', label: `Monthly Plan`, uri: monthlyCheckoutUrl } },
-            { type: 'action', action: { type: 'uri', label: `Yearly Plan`, uri: yearlyCheckoutUrl } }
-          ]
-        }
+        text: `💳 Subscription & Renewal Instructions:\n\nTo activate or extend your group subscription, please transfer funds to our account:\n- Bank: PromptPay / Bank Transfer\n- Account: xxx-x-xxxxx-x\n- Monthly Plan: 300 THB\n- Yearly Plan: 3,000 THB\n\nAfter transferring, send your slip and your Group ID (${chatId}) to the admin for manual activation!`
       }]
     });
   }
@@ -712,7 +710,7 @@ async function handleEvent(event) {
   if (sub.status === 'expired') {
     return client.replyMessage({
       replyToken: event.replyToken,
-      messages: [{ type: 'text', text: `⏳ Your group's free trial has ended. Type "subscribe to activate.` }]
+      messages: [{ type: 'text', text: `⏳ Your group's free trial has ended. Type "subscribe for payment instructions.` }]
     });
   }
 
@@ -1096,10 +1094,7 @@ async function handleEvent(event) {
     try {
       const pinText = createPinPlainText(trialHeader, store);
       await client.pushMessage({ to: userId, messages: [{ type: 'text', text: pinText }] });
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `✅ Pinned topics list has been sent to your private chat!` }]
-      });
+      return Promise.resolve(null); // Completely silent in group chat
     } catch (e) {
       return client.replyMessage({
         replyToken: event.replyToken,
@@ -1129,10 +1124,7 @@ async function handleEvent(event) {
         try {
           const pinText = createPinPlainText(trialHeader, store);
           await client.pushMessage({ to: userId, messages: [{ type: 'text', text: pinText }] });
-          return client.replyMessage({
-            replyToken: event.replyToken,
-            messages: [{ type: 'text', text: `✅ Pinned topics list has been sent to your private chat!` }]
-          });
+          return Promise.resolve(null); // Completely silent in group chat
         } catch (e) {
           return client.replyMessage({
             replyToken: event.replyToken,
@@ -1141,10 +1133,7 @@ async function handleEvent(event) {
         }
       }
 
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `❌ No note found matching query. Use "view [topic]"` }]
-      });
+      return Promise.resolve(null); // Silent ignore for unmatched queries in group
     }
 
     const currentNote = store.notes[matchedKey];
@@ -1179,11 +1168,8 @@ async function handleEvent(event) {
       });
     }
 
-    // Rule: Regular user typing '"view [topic]' gets private text only, nothing in group chat
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [{ type: 'text', text: `✅ The note details have been sent to your private chat!` }]
-    });
+    // Rule: Regular user typing '"view [topic]' gets private text only, absolutely zero group notification
+    return Promise.resolve(null);
   }
 
   return Promise.resolve(null);
