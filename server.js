@@ -350,8 +350,8 @@ async function handleEvent(event) {
   const chatId = event.source.groupId || event.source.roomId || event.source.userId;
   const userId = event.source.userId;
   
-  // Normalize mobile smart quotes (e.g. “ or ”) to standard quotes and trim whitespace
-  const rawText = event.message.text.trim().replace(/^[“”„‟]/, '"');
+  // Normalize all mobile smart quotes, curly variants, and angle quotes to a standard straight quote
+  const rawText = event.message.text.trim().replace(/^[“”„‟"«»]+/, '"');
   const lowerText = rawText.toLowerCase();
 
   let displayName = "User";
@@ -1158,5 +1158,5 @@ async function handleEvent(event) {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running live on port ${PORT});
+  console.log(`Server is running live on port ${PORT}`);
 });
