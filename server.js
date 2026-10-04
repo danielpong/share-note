@@ -11,7 +11,7 @@ const app = express();
 let chatData = {};
 let subscriptions = {};
 let userLastActiveTopic = {};
-let userGroups = {}; // Stores group info per user: { userId: Map(chatId -> { groupName, isCreator }) }
+let userGroups = {};
 
 const TRIAL_DAYS = 7;
 const BOT_ADD_FRIEND_URL = 'https://line.me/R/ti/p/@share_note';
@@ -420,7 +420,7 @@ async function handleEvent(event) {
 
   // Handle Private 1-on-1 DM Chat Interactions
   if (!isGroup) {
-    // Trigger: "my group (Private DM only or anywhere)
+    // Trigger: "my group (Private DM) - Fixed to catch both with and without quotes for safety
     if (lowerText === '"my group' || lowerText === 'my group') {
       const attendedMap = userGroups[userId];
       if (!attendedMap || attendedMap.size === 0) {
@@ -456,7 +456,6 @@ async function handleEvent(event) {
 
         let targetChatId = null;
         
-        // Match against stored groups for this user using cleaned names
         const attendedMap = userGroups[userId];
         if (attendedMap) {
           for (const [gId, info] of attendedMap.entries()) {
@@ -468,7 +467,6 @@ async function handleEvent(event) {
           }
         }
 
-        // Fallback search across all chatData if not found in userGroups
         if (!targetChatId) {
           for (const gId of Object.keys(chatData)) {
             const store = chatData[gId];
@@ -556,7 +554,7 @@ async function handleEvent(event) {
     if (!note) {
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `❌ No active note selected. Use "new [group name] "topic [name] "content [text]` }]
+        messages: [{ type: 'text', text: `❌ No active note selected. Type "my group" or use "new [group name] "topic [name] "content [text]"` }]
       });
     }
 
@@ -735,11 +733,9 @@ async function handleEvent(event) {
 
   const store = getChatStore(chatId);
   if (!store.groupName || store.groupName === chatId) {
-    // Attempt to fetch group name if available, or fallback to rawText of first message or default name
     store.groupName = "Group Chat";
   }
   
-  // Set group creator if not set yet
   if (!store.creatorId) {
     store.creatorId = userId;
   }
@@ -932,7 +928,6 @@ async function handleEvent(event) {
       });
     }
 
-    // Capture group name context if this is the first topic or if user specified it
     store.groupName = store.groupName || chatId;
 
     const key = topicName.toLowerCase();
@@ -1168,5 +1163,5 @@ async function handleEvent(event) {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running live on port ${PORT});
+  console.log(`Server is running live on port ${PORT}`);
 });
