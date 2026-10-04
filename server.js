@@ -375,6 +375,41 @@ async function handleEvent(event) {
   // ABSOLUTE ISOLATED PRIVATE DM HANDLER
   // ==========================================
   if (!isGroup) {
+    if (lowerText === '"my group' || lowerText === 'my group' || lowerText === '`"my group`') {
+      let foundGroups = [];
+      
+      if (userGroups[userId] && userGroups[userId].size > 0) {
+        for (let [gId, info] of userGroups[userId].entries()) {
+          foundGroups.push({ name: info.groupName || gId, isCreator: info.isCreator });
+        }
+      } else {
+        for (let gId of Object.keys(chatData)) {
+          const store = chatData[gId];
+          const isCreator = store.creatorId === userId || Object.values(store.notes).some(n => n.creatorId === userId);
+          foundGroups.push({ name: store.groupName || gId, isCreator: isCreator });
+        }
+      }
+
+      if (foundGroups.length === 0) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `📌 No groups recorded yet. Type any trigger command (like "pin) inside your group chat first!` }]
+        });
+      }
+
+      let msg = `📋 [ATTENDED GROUPS LIST]\nHere are the groups available:\n`;
+      foundGroups.forEach((g, idx) => {
+        const roleTag = g.isCreator ? `👑 Creator` : `👤 Member`;
+        msg += `\n${idx + 1}. ${g.name} (${roleTag})`;
+      });
+      msg += `\n\n💡 Tip: Copy a group name above and use:\n"new [group name] "topic [name] "content [text]`;
+
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: msg }]
+      });
+    }
+
     let targetChatId = null;
     for (const gId of Object.keys(chatData)) {
       if (userLastActiveTopic[userId] && chatData[gId].notes[userLastActiveTopic[userId]]) {
@@ -540,12 +575,10 @@ async function handleEvent(event) {
   // GROUP CHAT HANDLERS BELOW
   // ==========================================
 
-  // Strict check: All triggers in group chat must start with quotation mark (")
   if (isGroup && !rawText.startsWith('"')) {
     return Promise.resolve(null);
   }
 
-  // Trigger: "enguide
   if (lowerText === '"enguide') {
     const enSummary = [
       '• "new topic / "new topic [name] "content [text]: Create a new topic inside the current group chat.',
@@ -564,7 +597,6 @@ async function handleEvent(event) {
     });
   }
 
-  // Trigger: "tguide
   if (lowerText === '"tguide') {
     const thSummary = [
       '• "new topic / "new topic [name] "content [text]: สร้างหัวข้อใหม่พร้อมเนื้อหาเริ่มต้นในห้องแชทกลุ่มนี้',
@@ -634,7 +666,6 @@ async function handleEvent(event) {
 
   const nonFriendNotice = `⚠️ @${displayName} Please add friend with Share Note to receive private messages (note view, summary, reply, and edit confirmation):\n${BOT_ADD_FRIEND_URL}`;
 
-  // HANDLE '"reply [topic] [text]' COMMAND DIRECTLY IN GROUP
   if (lowerText.startsWith('"reply ')) {
     const queryPart = rawText.substring(7).trim();
     const allKeys = store.topicOrder.concat(Object.keys(store.notes).filter(k => !store.topicOrder.includes(k)));
@@ -695,7 +726,6 @@ async function handleEvent(event) {
     }
   }
 
-  // HANDLE '"edit reply [topic] [text]' COMMAND DIRECTLY IN GROUP
   if (lowerText.startsWith('"edit reply ')) {
     const queryPart = rawText.substring(12).trim();
     const allKeys = store.topicOrder.concat(Object.keys(store.notes).filter(k => !store.topicOrder.includes(k)));
