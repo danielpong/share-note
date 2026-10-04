@@ -29,7 +29,7 @@ function trackUserGroup(userId, chatId, groupName, isCreator = false) {
   }
   const existing = userGroups[userId].get(chatId) || { groupName: groupName, isCreator: false };
   if (isCreator) existing.isCreator = true;
-  if (groupName && groupName !== chatId && groupName !== "Group Chat") {
+  if (groupName && groupName !== chatId && !groupName.startsWith('Group (')) {
     existing.groupName = groupName;
   }
   userGroups[userId].set(chatId, existing);
@@ -350,7 +350,8 @@ async function handleEvent(event) {
   const chatId = event.source.groupId || event.source.roomId || event.source.userId;
   const userId = event.source.userId;
   
-  const rawText = event.message.text.trim();
+  // Normalize mobile smart quotes (e.g. “ or ”) to standard quotes and trim whitespace
+  const rawText = event.message.text.trim().replace(/^[“”„‟]/, '"');
   const lowerText = rawText.toLowerCase();
 
   let displayName = "User";
@@ -731,10 +732,6 @@ async function handleEvent(event) {
     }
   }
 
-  if (!store.groupName || store.groupName === chatId || store.groupName.startsWith('Group (')) {
-    // Keep existing or default
-  }
-  
   if (!store.creatorId) {
     store.creatorId = userId;
   }
@@ -1161,5 +1158,5 @@ async function handleEvent(event) {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running live on port ${PORT}`);
+  console.log(`Server is running live on port ${PORT});
 });
