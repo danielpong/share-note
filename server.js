@@ -33,7 +33,7 @@ function trackUserGroup(userId, chatId, groupName, isCreator = false) {
   }
   const existing = userGroups[userId].get(chatId) || { groupName: groupName, isCreator: false };
   if (isCreator) existing.isCreator = true;
-  if (groupName && groupName !== chatId) existing.groupName = groupName;
+  if (groupName && groupName !== chatId && groupName !== "Group Chat") existing.groupName = groupName;
   userGroups[userId].set(chatId, existing);
 }
 
@@ -356,13 +356,21 @@ async function handleEvent(event) {
   const lowerText = rawText.toLowerCase();
 
   let displayName = "User";
+  let groupName = "";
   try {
     if (event.source.groupId) {
       const profile = await client.getGroupMemberProfile(event.source.groupId, userId);
       displayName = profile.displayName;
+      try {
+        const summary = await client.getGroupSummary(event.source.groupId);
+        groupName = summary.groupName;
+      } catch (err) {
+        groupName = "Group " + event.source.groupId.substring(0, 6);
+      }
     } else if (event.source.roomId) {
       const profile = await client.getRoomMemberProfile(event.source.roomId, userId);
       displayName = profile.displayName;
+      groupName = "Room Chat";
     } else {
       const profile = await client.getProfile(userId);
       displayName = profile.displayName;
@@ -375,19 +383,20 @@ async function handleEvent(event) {
   // ABSOLUTE ISOLATED PRIVATE DM HANDLER
   // ==========================================
   if (!isGroup) {
-    // 1. Handle '"my group' command
     if (lowerText === '"my group' || lowerText === 'my group' || lowerText === '`"my group`') {
       let foundGroups = [];
       
       if (userGroups[userId] && userGroups[userId].size > 0) {
         for (let [gId, info] of userGroups[userId].entries()) {
-          foundGroups.push({ name: info.groupName || gId, isCreator: info.isCreator });
+          const name = (info.groupName && info.groupName !== gId && info.groupName !== "Group Chat") ? info.groupName : `Group (${gId.substring(0, 6)})`;
+          foundGroups.push({ name: name, isCreator: info.isCreator });
         }
       } else {
         for (let gId of Object.keys(chatData)) {
           const store = chatData[gId];
           const isCreator = store.creatorId === userId || Object.values(store.notes).some(n => n.creatorId === userId);
-          foundGroups.push({ name: store.groupName || gId, isCreator: isCreator });
+          const name = (store.groupName && store.groupName !== gId && store.groupName !== "Group Chat") ? store.groupName : `Group (${gId.substring(0, 6)})`;
+          foundGroups.push({ name: name, isCreator: isCreator });
         }
       }
 
@@ -411,7 +420,6 @@ async function handleEvent(event) {
       });
     }
 
-    // 2. Handle '"pin' command directly in private DM
     if (lowerText === '"pin') {
       let allStores = Object.keys(chatData).map(gId => chatData[gId]);
       let combinedNotes = [];
@@ -444,7 +452,6 @@ async function handleEvent(event) {
       });
     }
 
-    // 3. Handle '"view [topic]' command directly in private DM
     if (lowerText.startsWith('"view ') || lowerText === '"view') {
       const queryPart = rawText.startsWith('"view ') ? rawText.substring(6).trim().toLowerCase() : "";
       
@@ -722,8 +729,10 @@ async function handleEvent(event) {
   }
 
   const store = getChatStore(chatId);
-  if (!store.groupName || store.groupName === chatId) {
-    store.groupName = "Group Chat";
+  if (groupName && groupName !== "Group Chat") {
+    store.groupName = groupName;
+  } else if (!store.groupName || store.groupName === chatId) {
+    store.groupName = `Group (${chatId.substring(0, 6)})`;
   }
   
   if (!store.creatorId) {
