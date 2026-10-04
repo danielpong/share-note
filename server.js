@@ -355,72 +355,9 @@ async function handleEvent(event) {
   const rawText = event.message.text.trim();
   const lowerText = rawText.toLowerCase();
 
-  // Strict check: All triggers in group chat must start with quotation mark (")
-  if (isGroup && !rawText.startsWith('"')) {
-    return Promise.resolve(null);
-  }
-
-  // Trigger: "enguide
-  if (lowerText === '"enguide') {
-    const enSummary = [
-      '• "my group: View list of attended groups and your role (Creator / Member).',
-      '• "new [group] "topic [name] "content [text]: Create a new topic in a specific group from private DM.',
-      '• "new topic / "new topic [name] "content [text]: Create a new topic inside the current group chat.',
-      '• "reply [topic] [text]: Reply to a topic quietly; records entry and notifies via DM.',
-      '• edit: [text] / "edit reply [topic] [text]: Update or edit your existing reply quietly.',
-      '• "content [topic] [text]: Add content/introduction to an existing topic.',
-      '• "edit content [topic] [text]: Edit the main text of a topic (creator only).',
-      '• "pin: Display the latest topic flex message card in the group chat.',
-      '• "note [topic] done: Complete and lock a project note, archiving its report.',
-      '• "status: Check current subscription/trial status and validity.',
-      '• "subscribe: Display secure LINE Pay checkout options for plans.'
-    ];
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [createGuideFlexMessage('🇬🇧 English Trigger Guide', enSummary)]
-    });
-  }
-
-  // Trigger: "tguide
-  if (lowerText === '"tguide') {
-    const thSummary = [
-      '• "my group: แสดงรายการกลุ่มที่คุณเคยเข้าร่วมและสถานะของคุณ (ผู้สร้างกลุ่ม / สมาชิก)',
-      '• "new [group] "topic [name] "content [text]: สร้างหัวข้อใหม่ในกลุ่มที่ระบุผ่านแชทส่วนตัว',
-      '• "new topic / "new topic [name] "content [text]: สร้างหัวข้อใหม่พร้อมเนื้อหาเริ่มต้นในห้องแชทกลุ่มนี้',
-      '• "reply [topic] [text]: ตอบกลับหัวข้อแบบเงียบๆ บันทึกและส่งยืนยันเข้าแชทส่วนตัว (DM)',
-      '• edit: [text] / "edit reply [topic] [text]: อัปเดตหรือแก้ไขข้อความที่เคยตอบกลับไปแล้ว',
-      '• "content [topic] [text]: เพิ่มเนื้อหาหรือบทนำให้กับหัวข้อที่มีอยู่',
-      '• "edit content [topic] [text]: แก้ไขเนื้อหาหลักของหัวข้อ (จำกัดเฉพาะผู้สร้าง)',
-      '• "pin: แสดงการ์ด Flex ข้อความของหัวข้อล่าสุดในแชทกลุ่ม',
-      '• "note [topic] done: ปิดงานและล็อกโน้ตโปรเจกต์ พร้อมสรุปรายงาน',
-      '• "status: ตรวจสอบสถานะแพ็กเกจและวันหมดอายุของกลุ่ม',
-      '• "subscribe: แสดงปุ่มชำระเงินผ่าน LINE Pay สำหรับแพ็กเกจ'
-    ];
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [createGuideFlexMessage('🇹🇭 คู่มือคำสั่งทริกเกอร์', thSummary)]
-    });
-  }
-
-  let displayName = "User";
-  try {
-    if (event.source.groupId) {
-      const profile = await client.getGroupMemberProfile(event.source.groupId, userId);
-      displayName = profile.displayName;
-    } else if (event.source.roomId) {
-      const profile = await client.getRoomMemberProfile(event.source.roomId, userId);
-      displayName = profile.displayName;
-    } else {
-      const profile = await client.getProfile(userId);
-      displayName = profile.displayName;
-    }
-  } catch (err) {
-    console.error("Profile fetch error:", err);
-  }
-
-  // Handle Private 1-on-1 DM Chat Interactions
+  // Handle Private 1-on-1 DM Chat Interactions FIRST before any group restrictions
   if (!isGroup) {
-    // Trigger: "my group (Private DM) - Fixed to catch both with and without quotes for safety
+    // Trigger: "my group (Private DM)
     if (lowerText === '"my group' || lowerText === 'my group') {
       const attendedMap = userGroups[userId];
       if (!attendedMap || attendedMap.size === 0) {
@@ -691,6 +628,69 @@ async function handleEvent(event) {
       replyToken: event.replyToken,
       messages: [{ type: 'text', text: `✅ Your reply for "${note.title}" has been recorded successfully!` }]
     });
+  }
+
+  // Strict check: All triggers in group chat must start with quotation mark (")
+  if (isGroup && !rawText.startsWith('"')) {
+    return Promise.resolve(null);
+  }
+
+  // Trigger: "enguide
+  if (lowerText === '"enguide') {
+    const enSummary = [
+      '• "my group: View list of attended groups and your role (Creator / Member).',
+      '• "new [group] "topic [name] "content [text]: Create a new topic in a specific group from private DM.',
+      '• "new topic / "new topic [name] "content [text]: Create a new topic inside the current group chat.',
+      '• "reply [topic] [text]: Reply to a topic quietly; records entry and notifies via DM.',
+      '• edit: [text] / "edit reply [topic] [text]: Update or edit your existing reply quietly.',
+      '• "content [topic] [text]: Add content/introduction to an existing topic.',
+      '• "edit content [topic] [text]: Edit the main text of a topic (creator only).',
+      '• "pin: Display the latest topic flex message card in the group chat.',
+      '• "note [topic] done: Complete and lock a project note, archiving its report.',
+      '• "status: Check current subscription/trial status and validity.',
+      '• "subscribe: Display secure LINE Pay checkout options for plans.'
+    ];
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [createGuideFlexMessage('🇬🇧 English Trigger Guide', enSummary)]
+    });
+  }
+
+  // Trigger: "tguide
+  if (lowerText === '"tguide') {
+    const thSummary = [
+      '• "my group: แสดงรายการกลุ่มที่คุณเคยเข้าร่วมและสถานะของคุณ (ผู้สร้างกลุ่ม / สมาชิก)',
+      '• "new [group] "topic [name] "content [text]: สร้างหัวข้อใหม่ในกลุ่มที่ระบุผ่านแชทส่วนตัว',
+      '• "new topic / "new topic [name] "content [text]: สร้างหัวข้อใหม่พร้อมเนื้อหาเริ่มต้นในห้องแชทกลุ่มนี้',
+      '• "reply [topic] [text]: ตอบกลับหัวข้อแบบเงียบๆ บันทึกและส่งยืนยันเข้าแชทส่วนตัว (DM)',
+      '• edit: [text] / "edit reply [topic] [text]: อัปเดตหรือแก้ไขข้อความที่เคยตอบกลับไปแล้ว',
+      '• "content [topic] [text]: เพิ่มเนื้อหาหรือบทนำให้กับหัวข้อที่มีอยู่',
+      '• "edit content [topic] [text]: แก้ไขเนื้อหาหลักของหัวข้อ (จำกัดเฉพาะผู้สร้าง)',
+      '• "pin: แสดงการ์ด Flex ข้อความของหัวข้อล่าสุดในแชทกลุ่ม',
+      '• "note [topic] done: ปิดงานและล็อกโน้ตโปรเจกต์ พร้อมสรุปรายงาน',
+      '• "status: ตรวจสอบสถานะแพ็กเกจและวันหมดอายุของกลุ่ม',
+      '• "subscribe: แสดงปุ่มชำระเงินผ่าน LINE Pay สำหรับแพ็กเกจ'
+    ];
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [createGuideFlexMessage('🇹🇭 คู่มือคำสั่งทริกเกอร์', thSummary)]
+    });
+  }
+
+  let displayName = "User";
+  try {
+    if (event.source.groupId) {
+      const profile = await client.getGroupMemberProfile(event.source.groupId, userId);
+      displayName = profile.displayName;
+    } else if (event.source.roomId) {
+      const profile = await client.getRoomMemberProfile(event.source.roomId, userId);
+      displayName = profile.displayName;
+    } else {
+      const profile = await client.getProfile(userId);
+      displayName = profile.displayName;
+    }
+  } catch (err) {
+    console.error("Profile fetch error:", err);
   }
 
   const sub = checkAndManageSubscription(chatId);
